@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  external: ['viem'],
+  external: ['viem', 'wagmi', '@wagmi/core'],
 })

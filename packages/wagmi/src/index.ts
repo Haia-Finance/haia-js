@@ -1,13 +1,12 @@
 import { type Eip1193Provider, type HaiaClient, wrapEip1193Provider } from '@haia/core'
 
 /**
- * Референс-адаптер. viem/wagmi-кошельки экспонируют EIP-1193 provider, поэтому
- * адаптер тонкий: вся policy/analytics-логика — в `@haia/core`.
+ * Низкоуровневый враппер EIP-1193 provider — подходит любому кошельку, который
+ * экспонирует provider (включая injected). Для идиоматичного viem см.
+ * `haiaTransport`, для wagmi — `haiaConnector`.
  *
- * Использование:
- *   const client = createHaiaClient({ projectId, serverApiKey, ingestToken })
  *   const provider = haiaWrapProvider(walletProvider, client, chainId)
- *   // дальше отдать provider в createWalletClient({ transport: custom(provider) })
+ *   createWalletClient({ transport: custom(provider) })
  */
 export function haiaWrapProvider(
   provider: Eip1193Provider,
@@ -19,3 +18,5 @@ export function haiaWrapProvider(
 
 export type { Eip1193Provider } from '@haia/core'
 export { createHaiaClient, HaiaClient } from '@haia/core'
+export { type HaiaConnectorOptions, haiaConnector } from './connector'
+export { type HaiaTransportOptions, haiaTransport } from './transport'

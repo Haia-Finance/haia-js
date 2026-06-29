@@ -32,6 +32,12 @@ export class HaiaClient {
   track(event: string, properties?: Record<string, unknown>): void {
     this.analytics.enqueue({ type: 'track', event, properties })
   }
+
+  /** Связывает пользователя (user_id / адрес кошелька) и шлёт identify. */
+  identify(userId: string, traits?: Record<string, unknown>): void {
+    this.identity.setUserId(userId)
+    this.analytics.enqueue({ type: 'identify', userId, traits })
+  }
 }
 
 export function createHaiaClient(cfg: HaiaConfig): HaiaClient {

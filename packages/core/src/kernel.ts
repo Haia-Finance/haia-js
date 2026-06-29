@@ -51,34 +51,42 @@ export function wrapEip1193Provider(
   client: HaiaClient,
   chainId: string | number,
 ): Eip1193Provider {
-  return {
-    async request(args: Eip1193RequestArgs): Promise<unknown> {
-      if (!GATED_METHODS.has(args.method)) {
-        return provider.request(args)
-      }
-      const evaluated = await Promise.all(
-        buildContexts(args, chainId).map(async (ctx) => ({
-          ctx,
-          verdict: await client.guard(ctx),
-        })),
+  const request: Eip1193Provider['request'] = async (args) => {
+    if (!GATED_METHODS.has(args.method)) {
+      return provider.request(args)
+    }
+    const evaluated = await Promise.all(
+      buildContexts(args, chainId).map(async (ctx) => ({
+        ctx,
+        verdict: await client.guard(ctx),
+      })),
+    )
+    const blocked = evaluated.find((e) => e.verdict.decision === 'rejected')
+    if (blocked) {
+      throw new Error(
+        `haia: transaction blocked (${blocked.verdict.reasons?.join(', ') ?? 'policy'})`,
       )
-      const blocked = evaluated.find((e) => e.verdict.decision === 'rejected')
-      if (blocked) {
-        throw new Error(
-          `haia: transaction blocked (${blocked.verdict.reasons?.join(', ') ?? 'policy'})`,
-        )
-      }
-      const result = await provider.request(args)
-      for (const { ctx, verdict } of evaluated) {
-        client.track(ctx.eventType, {
-          decision: verdict.decision,
-          chain: ctx.chain,
-          clientEventId: ctx.clientEventId,
-        })
-      }
-      return result
-    },
+    }
+    const result = await provider.request(args)
+    for (const { ctx, verdict } of evaluated) {
+      client.track(ctx.eventType, {
+        decision: verdict.decision,
+        chain: ctx.chain,
+        clientEventId: ctx.clientEventId,
+      })
+    }
+    return result
   }
+
+  // Proxy сохраняет остальной интерфейс провайдера (on/removeListener/…),
+  // подменяя только request — иначе wagmi-коннекторы теряют подписки на события.
+  return new Proxy(provider, {
+    get(target, prop, receiver) {
+      if (prop === 'request') return request
+      const value = Reflect.get(target, prop, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
 }
 
 /** Строит один или несколько контекстов из запроса (батч ⇒ несколько). */
