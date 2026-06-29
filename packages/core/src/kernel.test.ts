@@ -1,7 +1,7 @@
 import type { TransactionContext, Verdict } from '@haia/types'
 import { describe, expect, it, vi } from 'vitest'
 import type { HaiaClient } from './client'
-import { wrapEip1193Provider } from './kernel'
+import { type Eip1193Provider, wrapEip1193Provider } from './kernel'
 
 function fakeClient(decision: Verdict['decision'] = 'approved') {
   const guard = vi.fn(
@@ -97,5 +97,40 @@ describe('wrapEip1193Provider', () => {
 
     expect(guard.mock.calls.length).toBe(0)
     expect(request.mock.calls.length).toBe(1)
+  })
+
+  it('preserves private-field getters and stable method identity on class providers', async () => {
+    class ClassProvider {
+      #chainHex = '0x1'
+      listeners: Array<(p: unknown) => void> = []
+      get chainId(): string {
+        return this.#chainHex // throws TypeError if `this` is not a real instance
+      }
+      on(_event: string, handler: (p: unknown) => void): void {
+        this.listeners.push(handler)
+      }
+      removeListener(_event: string, handler: (p: unknown) => void): void {
+        this.listeners = this.listeners.filter((h) => h !== handler)
+      }
+      async request(): Promise<unknown> {
+        return '0xok'
+      }
+    }
+    const provider = new ClassProvider()
+    const { client } = fakeClient()
+    const wrapped = wrapEip1193Provider(
+      provider as unknown as Eip1193Provider,
+      client,
+      1,
+    ) as unknown as ClassProvider
+
+    expect(() => wrapped.chainId).not.toThrow()
+    expect(wrapped.chainId).toBe('0x1')
+    expect(wrapped.on).toBe(wrapped.on) // stable identity across reads
+
+    const handler = (): void => {}
+    wrapped.on('chainChanged', handler)
+    wrapped.removeListener('chainChanged', handler)
+    expect(provider.listeners.length).toBe(0) // removeListener matched the same ref
   })
 })

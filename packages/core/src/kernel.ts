@@ -33,6 +33,9 @@ interface SendCallsParams {
   calls?: RawTx[]
 }
 
+/** chainId фиксированным значением или резолвером (для live-сетей: chainChanged). */
+type ChainIdSource = string | number | (() => string | number)
+
 const GATED_METHODS = new Set([
   'eth_sendTransaction',
   'wallet_sendCalls',
@@ -49,14 +52,17 @@ const GATED_METHODS = new Set([
 export function wrapEip1193Provider(
   provider: Eip1193Provider,
   client: HaiaClient,
-  chainId: string | number,
+  chainId: ChainIdSource,
 ): Eip1193Provider {
+  const resolveChainId = (): string | number =>
+    typeof chainId === 'function' ? chainId() : chainId
+
   const request: Eip1193Provider['request'] = async (args) => {
     if (!GATED_METHODS.has(args.method)) {
       return provider.request(args)
     }
     const evaluated = await Promise.all(
-      buildContexts(args, chainId).map(async (ctx) => ({
+      buildContexts(args, resolveChainId()).map(async (ctx) => ({
         ctx,
         verdict: await client.guard(ctx),
       })),
@@ -79,12 +85,23 @@ export function wrapEip1193Provider(
   }
 
   // Proxy сохраняет остальной интерфейс провайдера (on/removeListener/…),
-  // подменяя только request — иначе wagmi-коннекторы теряют подписки на события.
+  // подменяя только request. Важно:
+  //  - Reflect.get без receiver → геттеры исполняются с this=target, иначе
+  //    приватные поля (#field) класс-провайдеров бросают TypeError;
+  //  - кэш связанных методов → стабильная идентичность (provider.on === provider.on),
+  //    иначе removeListener не находит обработчик и подписки текут.
+  const boundMethods = new Map<PropertyKey, unknown>()
   return new Proxy(provider, {
-    get(target, prop, receiver) {
+    get(target, prop) {
       if (prop === 'request') return request
-      const value = Reflect.get(target, prop, receiver)
-      return typeof value === 'function' ? value.bind(target) : value
+      const value = Reflect.get(target, prop)
+      if (typeof value !== 'function') return value
+      let bound = boundMethods.get(prop)
+      if (bound === undefined) {
+        bound = value.bind(target)
+        boundMethods.set(prop, bound)
+      }
+      return bound
     },
   })
 }

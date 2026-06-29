@@ -17,6 +17,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./connector": {
+      "import": {
+        "types": "./dist/connector.d.ts",
+        "default": "./dist/connector.js"
+      },
+      "require": {
+        "types": "./dist/connector.d.cts",
+        "default": "./dist/connector.cjs"
+      }
     }
   },
   "files": [
@@ -32,10 +42,10 @@
   },
   "peerDependencies": {
     "viem": "^2.0.0",
-    "wagmi": "^2.0.0"
+    "@wagmi/core": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "wagmi": {
+    "@wagmi/core": {
       "optional": true
     }
   },

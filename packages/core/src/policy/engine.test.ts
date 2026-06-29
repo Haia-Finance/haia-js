@@ -1,5 +1,5 @@
 import type { TransactionContext } from '@haia/types'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HaiaConfig } from '../config'
 import type { Runtime } from '../runtime'
 import { PolicyEngine } from './engine'
@@ -55,5 +55,24 @@ describe('PolicyEngine cache key', () => {
     await engine.evaluate(ctx({ ...base, isUnlimitedApproval: false }))
     await engine.evaluate(ctx({ ...base, isUnlimitedApproval: true })) // must re-evaluate
     expect(calls()).toBe(2)
+  })
+})
+
+describe('PolicyEngine error handling', () => {
+  it('treats a 401 as a config error (distinct reason), not a transient outage', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runtime: Runtime = {
+      fetch: (async () => new Response('unauthorized', { status: 401 })) as typeof fetch,
+      storage: { get: () => null, set: () => {} },
+      now: () => 1_000,
+    }
+    const engine = new PolicyEngine(cfg, runtime, 'https://x')
+
+    const verdict = await engine.evaluate(ctx({ eventType: 'sign_message' })) // fail-open
+
+    expect(verdict.decision).toBe('approved')
+    expect(verdict.reasons).toContain('client_error:401')
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
   })
 })

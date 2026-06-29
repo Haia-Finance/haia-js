@@ -20,6 +20,7 @@ export class PolicyEngine {
   private readonly cache = new Map<string, CacheEntry>()
   private failures = 0
   private breakerOpenUntil = 0
+  private warnedClientError = false
 
   constructor(
     private readonly cfg: HaiaConfig,
@@ -54,7 +55,17 @@ export class PolicyEngine {
         },
         body: JSON.stringify(ctx),
       })
-      if (!res.ok) throw new Error(`policy responded ${res.status}`)
+      if (!res.ok) {
+        // 4xx (кроме 429) — конфиг/авторизация, а не транзиентная авария:
+        // не копим в circuit breaker (ретраи не помогут) и сигналим явной
+        // причиной, чтобы мисконфиг serverApiKey/projectId был виден, а не
+        // молча маскировался fail-mode под «недоступность».
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+          this.warnClientError(res.status)
+          return this.fallback(ctx, `client_error:${res.status}`)
+        }
+        throw new Error(`policy responded ${res.status}`)
+      }
       const verdict = (await res.json()) as Verdict
       this.onSuccess()
       if (verdict.ttlMs && verdict.ttlMs > 0) {
@@ -92,6 +103,14 @@ export class PolicyEngine {
   private onSuccess(): void {
     this.failures = 0
     this.breakerOpenUntil = 0
+  }
+
+  private warnClientError(status: number): void {
+    if (this.warnedClientError) return
+    this.warnedClientError = true
+    console.warn(
+      `haia: policy /evaluate returned ${status}; check serverApiKey/projectId. Applying configured fail-mode.`,
+    )
   }
 
   private onFailure(): void {
