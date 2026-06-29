@@ -26,8 +26,15 @@ function memoryStorage(): KeyValueStorage {
 
 export function defaultRuntime(): Runtime {
   const ls = globalThis.localStorage as Storage | undefined
+  const gf = globalThis.fetch as typeof fetch | undefined
   return {
-    fetch: globalThis.fetch.bind(globalThis),
+    // Не падаем в конструкторе, если глобального fetch нет (RN / старый Node):
+    // ошибка откладывается до вызова, а инъекция cfg.runtime.fetch её перекрывает.
+    fetch: gf
+      ? gf.bind(globalThis)
+      : ((() => {
+          throw new Error('haia: no global fetch; pass runtime.fetch in HaiaConfig')
+        }) as typeof fetch),
     storage: ls ? { get: (k) => ls.getItem(k), set: (k, v) => ls.setItem(k, v) } : memoryStorage(),
     now: () => Date.now(),
   }

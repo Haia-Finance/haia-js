@@ -9,6 +9,7 @@ interface CacheEntry {
 
 const BREAKER_THRESHOLD = 5
 const BREAKER_COOLDOWN_MS = 10_000
+const MAX_CACHE_ENTRIES = 1000
 
 /**
  * Горячий путь. Жёсткий timeout = latency budget, кэш решений на окно ttlMs,
@@ -28,7 +29,10 @@ export class PolicyEngine {
   async evaluate(ctx: TransactionContext): Promise<Verdict> {
     const key = this.cacheKey(ctx)
     const cached = this.cache.get(key)
-    if (cached && cached.expiresAt > this.runtime.now()) return cached.verdict
+    if (cached) {
+      if (cached.expiresAt > this.runtime.now()) return cached.verdict
+      this.cache.delete(key)
+    }
 
     if (this.runtime.now() < this.breakerOpenUntil) {
       return this.fallback(ctx, 'circuit_open')
@@ -52,6 +56,10 @@ export class PolicyEngine {
       const verdict = (await res.json()) as Verdict
       this.onSuccess()
       if (verdict.ttlMs && verdict.ttlMs > 0) {
+        if (this.cache.size >= MAX_CACHE_ENTRIES) {
+          const oldest = this.cache.keys().next().value
+          if (oldest !== undefined) this.cache.delete(oldest)
+        }
         this.cache.set(key, {
           verdict,
           expiresAt: this.runtime.now() + verdict.ttlMs,
@@ -99,7 +107,8 @@ export class PolicyEngine {
       ctx.to ?? '',
       ctx.method ?? '',
       ctx.spender ?? '',
-      ctx.amount ?? '',
+      ctx.amount ?? ctx.amountRaw ?? '',
+      ctx.isUnlimitedApproval ? '1' : '',
     ].join('|')
   }
 }
