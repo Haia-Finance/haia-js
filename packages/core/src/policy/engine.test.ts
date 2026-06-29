@@ -33,6 +33,20 @@ function ctx(over: Partial<TransactionContext>): TransactionContext {
 }
 
 describe('PolicyEngine cache key', () => {
+  it('does not share a verdict across different sender accounts (from)', async () => {
+    const { runtime, calls } = runtimeWithCounter()
+    const engine = new PolicyEngine(cfg, runtime, 'https://x')
+    const shared = {
+      eventType: 'token_approval' as const,
+      to: '0xtoken',
+      method: 'approve',
+      spender: '0xspender',
+    }
+    await engine.evaluate(ctx({ ...shared, from: '0xAAA' }))
+    await engine.evaluate(ctx({ ...shared, from: '0xBBB' })) // different sender → re-evaluate
+    expect(calls()).toBe(2)
+  })
+
   it('does not share a verdict across different amounts (amountRaw)', async () => {
     const { runtime, calls } = runtimeWithCounter()
     const engine = new PolicyEngine(cfg, runtime, 'https://x')

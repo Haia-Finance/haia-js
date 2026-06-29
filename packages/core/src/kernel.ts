@@ -57,12 +57,17 @@ export function wrapEip1193Provider(
   const resolveChainId = (): string | number =>
     typeof chainId === 'function' ? chainId() : chainId
 
-  const request: Eip1193Provider['request'] = async (args) => {
-    if (!GATED_METHODS.has(args.method)) {
-      return provider.request(args)
+  // Прозрачно прокидываем ВСЕ аргументы (viem передаёт вторым options:
+  // dedupe/retryCount/uid), чтобы не терять их на gated/passthrough вызовах.
+  const forward = provider.request.bind(provider) as (...args: unknown[]) => Promise<unknown>
+
+  const request = (async (...args: unknown[]) => {
+    const reqArgs = (args[0] ?? {}) as Eip1193RequestArgs
+    if (!GATED_METHODS.has(reqArgs.method)) {
+      return forward(...args)
     }
     const evaluated = await Promise.all(
-      buildContexts(args, resolveChainId()).map(async (ctx) => ({
+      buildContexts(reqArgs, resolveChainId()).map(async (ctx) => ({
         ctx,
         verdict: await client.guard(ctx),
       })),
@@ -73,7 +78,7 @@ export function wrapEip1193Provider(
         `haia: transaction blocked (${blocked.verdict.reasons?.join(', ') ?? 'policy'})`,
       )
     }
-    const result = await provider.request(args)
+    const result = await forward(...args)
     for (const { ctx, verdict } of evaluated) {
       client.track(ctx.eventType, {
         decision: verdict.decision,
@@ -82,7 +87,7 @@ export function wrapEip1193Provider(
       })
     }
     return result
-  }
+  }) as Eip1193Provider['request']
 
   // Proxy сохраняет остальной интерфейс провайдера (on/removeListener/…),
   // подменяя только request. Важно:
@@ -121,6 +126,16 @@ function buildContexts(args: Eip1193RequestArgs, chainId: string | number): Tran
   return [txContext((args.params?.[0] ?? {}) as RawTx, chainId)]
 }
 
+/** Парсит EIP-1193 value (hex quantity) → wei-string; малформенный → undefined. */
+function parseValue(value?: string): string | undefined {
+  if (!value || value === '0x') return undefined
+  try {
+    return BigInt(value).toString()
+  } catch {
+    return undefined
+  }
+}
+
 function txContext(tx: RawTx, chainId: string | number): TransactionContext {
   const approval = decodeApproval(tx.data)
   const hasCalldata = !!tx.data && tx.data !== '0x'
@@ -132,7 +147,7 @@ function txContext(tx: RawTx, chainId: string | number): TransactionContext {
     chain: toCaip2(chainId),
     from: tx.from,
     to: tx.to,
-    amountRaw: tx.value && tx.value !== '0x' ? BigInt(tx.value).toString() : undefined,
+    amountRaw: parseValue(tx.value),
     spender: approval?.spender,
     isUnlimitedApproval: approval?.isUnlimitedApproval,
     method: approval?.method,

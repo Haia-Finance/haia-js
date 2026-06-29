@@ -99,6 +99,31 @@ describe('wrapEip1193Provider', () => {
     expect(request.mock.calls.length).toBe(1)
   })
 
+  it('does not throw on a malformed value and omits amountRaw', async () => {
+    const { client, guard } = fakeClient()
+    const request = vi.fn(async () => '0xhash')
+    const wrapped = wrapEip1193Provider({ request }, client, 1)
+
+    await expect(
+      wrapped.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0xZZ' }] }),
+    ).resolves.toBe('0xhash')
+    expect(guard.mock.calls[0]?.[0]?.amountRaw).toBeUndefined()
+  })
+
+  it('forwards extra request arguments (viem options) to the provider', async () => {
+    const { client } = fakeClient()
+    const request = vi.fn(async (..._args: unknown[]) => '0xhash')
+    const wrapped = wrapEip1193Provider({ request }, client, 1)
+    const options = { dedupe: true }
+
+    await (wrapped.request as (a: unknown, o?: unknown) => Promise<unknown>)(
+      { method: 'eth_sendTransaction', params: [{ to: '0xr' }] },
+      options,
+    )
+
+    expect(request.mock.calls[0]?.[1]).toBe(options)
+  })
+
   it('preserves private-field getters and stable method identity on class providers', async () => {
     class ClassProvider {
       #chainHex = '0x1'

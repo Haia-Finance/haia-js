@@ -1,5 +1,6 @@
 import type { AnalyticsEvent } from '@haia/types'
 import type { HaiaConfig } from '../config'
+import type { Identity } from '../identity/identity'
 import type { Runtime } from '../runtime'
 import { toBase64, unref } from '../util'
 
@@ -15,6 +16,7 @@ export class AnalyticsClient {
     private readonly cfg: HaiaConfig,
     private readonly runtime: Runtime,
     private readonly endpoint: string,
+    private readonly identity: Identity,
     private readonly batchSize = 20,
     private readonly flushIntervalMs = 5000,
   ) {}
@@ -52,7 +54,14 @@ export class AnalyticsClient {
             ? { authorization: `Basic ${toBase64(`${this.cfg.ingestToken}:`)}` }
             : {}),
         },
-        body: JSON.stringify({ projectId: this.cfg.projectId, batch }),
+        body: JSON.stringify({
+          projectId: this.cfg.projectId,
+          // Идентичность на конверте: anonymousId стабилен по сессии, userId
+          // появляется после identify() → бэкенд может склеить anonymous↔user.
+          anonymousId: this.identity.anonymousId(),
+          userId: this.identity.userId() ?? undefined,
+          batch,
+        }),
       })
     } catch {
       // fire-and-forget — намеренно глотаем ошибку, не блокируем приложение.

@@ -124,6 +124,7 @@ export class PolicyEngine {
   private cacheKey(ctx: TransactionContext): string {
     return [
       ctx.chain,
+      ctx.from ?? '',
       ctx.eventType,
       ctx.to ?? '',
       ctx.method ?? '',

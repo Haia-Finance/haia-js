@@ -101,13 +101,13 @@ export function decodePermit(typedData: unknown): DecodedApproval | null {
 
   if (primaryType === 'PermitSingle' || primaryType === 'PermitBatch') {
     const details = message.details
-    const first = Array.isArray(details) ? details[0] : details
-    const amount = toBigIntOrNull((first as { amount?: unknown } | undefined)?.amount)
-    return {
-      method: 'permit',
-      spender: message.spender,
-      isUnlimitedApproval: amount !== null && amount >= UNLIMITED_THRESHOLD,
-    }
+    // PermitBatch: проверяем ВСЕ элементы — безлимит может прятаться не в details[0].
+    const list = Array.isArray(details) ? details : [details]
+    const isUnlimited = list.some((entry) => {
+      const amount = toBigIntOrNull((entry as { amount?: unknown } | undefined)?.amount)
+      return amount !== null && amount >= UNLIMITED_THRESHOLD
+    })
+    return { method: 'permit', spender: message.spender, isUnlimitedApproval: isUnlimited }
   }
 
   return null

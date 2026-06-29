@@ -3,7 +3,7 @@ import { AnalyticsClient } from './analytics/client'
 import { DEFAULT_ENDPOINTS, type HaiaConfig } from './config'
 import { Identity } from './identity/identity'
 import { PolicyEngine } from './policy/engine'
-import { defaultRuntime, type Runtime } from './runtime'
+import { defaultRuntime } from './runtime'
 
 /**
  * Фасад. Конфигурируется один раз; держит два независимых под-клиента:
@@ -13,14 +13,13 @@ export class HaiaClient {
   readonly policy: PolicyEngine
   readonly analytics: AnalyticsClient
   readonly identity: Identity
-  private readonly runtime: Runtime
 
   constructor(cfg: HaiaConfig) {
-    this.runtime = { ...defaultRuntime(), ...cfg.runtime }
+    const runtime = { ...defaultRuntime(), ...cfg.runtime }
     const endpoints = { ...DEFAULT_ENDPOINTS, ...cfg.endpoints }
-    this.policy = new PolicyEngine(cfg, this.runtime, endpoints.policy)
-    this.analytics = new AnalyticsClient(cfg, this.runtime, endpoints.ingest)
-    this.identity = new Identity(this.runtime)
+    this.identity = new Identity(runtime)
+    this.policy = new PolicyEngine(cfg, runtime, endpoints.policy)
+    this.analytics = new AnalyticsClient(cfg, runtime, endpoints.ingest, this.identity)
   }
 
   /** Горячий путь: синхронный policy-gate. Адаптер применяет вердикт. */

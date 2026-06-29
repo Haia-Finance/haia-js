@@ -73,6 +73,18 @@ describe('decodePermit', () => {
     expect(decoded?.isUnlimitedApproval).toBe(false)
   })
 
+  it('flags unlimited hidden in a Permit2 PermitBatch (not just details[0])', () => {
+    const decoded = decodePermit({
+      primaryType: 'PermitBatch',
+      message: {
+        spender: '0xspender',
+        details: [{ amount: '1000' }, { amount: (2n ** 200n).toString() }],
+      },
+    })
+    expect(decoded?.method).toBe('permit')
+    expect(decoded?.isUnlimitedApproval).toBe(true)
+  })
+
   it('returns null for non-permit typed data', () => {
     expect(decodePermit({ primaryType: 'Mail', message: { spender: '0x0' } })).toBeNull()
     expect(decodePermit(undefined)).toBeNull()
