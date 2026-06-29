@@ -24,6 +24,6 @@ export {
 } from './kernel'
 export { weiToDecimalString } from './normalize/amount'
 export { toCaip2 } from './normalize/chain'
-export { type DecodedApproval, decodeApproval } from './normalize/intent'
+export { type DecodedApproval, decodeApproval, decodePermit } from './normalize/intent'
 export { PolicyEngine } from './policy/engine'
 export type { KeyValueStorage, Runtime } from './runtime'

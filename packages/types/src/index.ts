@@ -22,6 +22,7 @@ export type EventType =
   | 'swap_intent'
   | 'bridge_intent'
   | 'token_approval'
+  | 'contract_call'
   | 'sign_message'
   | 'wallet_connected'
 
@@ -39,7 +40,8 @@ export interface TransactionContext {
   amount?: string
   /** Сырая сумма в минимальных единицах (wei), string. */
   amountRaw?: string
-  from: string
+  /** Отправитель. Необязателен: многие EIP-1193 кошельки заполняют его сами. */
+  from?: string
   to?: string
   /** Для approve — кому выдаётся аппрув. */
   spender?: string

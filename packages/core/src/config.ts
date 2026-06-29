@@ -32,6 +32,7 @@ export const DEFAULT_FAIL_MODE: Record<EventType, FailMode> = {
   swap_intent: 'closed',
   bridge_intent: 'closed',
   token_approval: 'closed',
+  contract_call: 'closed',
   sign_message: 'open',
   wallet_connected: 'open',
 }

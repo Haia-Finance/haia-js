@@ -1,7 +1,7 @@
 import type { AnalyticsEvent } from '@haia/types'
 import type { HaiaConfig } from '../config'
 import type { Runtime } from '../runtime'
-import { toBase64 } from '../util'
+import { toBase64, unref } from '../util'
 
 /**
  * Холодный путь: батчинг + fire-and-forget. Ошибки сети НИКОГДА не всплывают в
@@ -33,6 +33,7 @@ export class AnalyticsClient {
     this.flushTimer = setTimeout(() => {
       void this.flush()
     }, this.flushIntervalMs)
+    unref(this.flushTimer)
   }
 
   async flush(): Promise<void> {

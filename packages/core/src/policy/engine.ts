@@ -1,6 +1,7 @@
 import type { FailMode, TransactionContext, Verdict } from '@haia/types'
 import { DEFAULT_FAIL_MODE, DEFAULT_LATENCY_BUDGET_MS, type HaiaConfig } from '../config'
 import type { Runtime } from '../runtime'
+import { unref } from '../util'
 
 interface CacheEntry {
   verdict: Verdict
@@ -41,6 +42,7 @@ export class PolicyEngine {
     const budget = this.cfg.latencyBudgetMs ?? DEFAULT_LATENCY_BUDGET_MS
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), budget)
+    unref(timer)
     try {
       const res = await this.runtime.fetch(this.endpoint, {
         method: 'POST',
