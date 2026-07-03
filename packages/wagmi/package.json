@@ -1,0 +1,60 @@
+{
+  "name": "@haia/wagmi",
+  "version": "0.0.0",
+  "description": "Haia adapter for viem / wagmi: gate transactions through policy and emit analytics.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./connector": {
+      "import": {
+        "types": "./dist/connector.d.ts",
+        "default": "./dist/connector.js"
+      },
+      "require": {
+        "types": "./dist/connector.d.cts",
+        "default": "./dist/connector.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@haia/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0",
+    "@wagmi/core": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@wagmi/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@haia/tsconfig": "workspace:*",
+    "@wagmi/core": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:",
+    "vitest": "catalog:"
+  }
+}
