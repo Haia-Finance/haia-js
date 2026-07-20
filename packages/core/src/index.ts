@@ -1,21 +1,24 @@
 export type {
   AnalyticsEvent,
-  AssetRef,
   CaipChainId,
   Decision,
-  EventType,
+  Facts,
   FailMode,
-  TransactionContext,
+  TypeKey,
   Verdict,
 } from '@haia/types'
 export { AnalyticsClient } from './analytics/client'
 export { createHaiaClient, HaiaClient } from './client'
 export {
-  DEFAULT_FAIL_MODE,
+  DEFAULT_API_BASE,
+  DEFAULT_FAIL_MODE_BY_TYPE_KEY,
   DEFAULT_LATENCY_BUDGET_MS,
   type HaiaConfig,
   type HaiaEndpoints,
+  type HaiaFailModeConfig,
+  resolveEndpoints,
 } from './config'
+export { HaiaPolicyError } from './errors'
 export { Identity } from './identity/identity'
 export {
   type Eip1193Provider,
@@ -25,5 +28,5 @@ export {
 export { weiToDecimalString } from './normalize/amount'
 export { toCaip2 } from './normalize/chain'
 export { type DecodedApproval, decodeApproval, decodePermit } from './normalize/intent'
-export { PolicyEngine } from './policy/engine'
+export { type GuardOptions, PolicyClient } from './policy/client'
 export type { KeyValueStorage, Runtime } from './runtime'

@@ -1,4 +1,4 @@
-import type { HaiaClient, TransactionContext, Verdict } from '@haia/core'
+import type { Facts, HaiaClient, Verdict } from '@haia/core'
 import type { CreateConnectorFn } from '@wagmi/core'
 import { describe, expect, it, vi } from 'vitest'
 import { haiaConnector } from './connector'
@@ -38,7 +38,7 @@ describe('haiaConnector', () => {
 
   it('resolves chainId once and follows chainChanged', async () => {
     const guard = vi.fn(
-      async (_c: TransactionContext): Promise<Verdict> => ({
+      async (_facts: Facts): Promise<Verdict> => ({
         decision: 'approved',
         decisionId: 'd',
       }),
@@ -72,10 +72,10 @@ describe('haiaConnector', () => {
     expect(chainIdCalls).toBe(1) // resolved once, cached across getProvider calls
 
     await p1.request({ method: 'eth_sendTransaction', params: [{ to: '0xr' }] })
-    expect(guard.mock.calls[0]?.[0]?.chain).toBe('eip155:1')
+    expect(guard.mock.calls[0]?.[0]?.meta.chain).toBe('eip155:1')
 
     chainHandler?.('0x89') // wallet switches to Polygon
     await p2.request({ method: 'eth_sendTransaction', params: [{ to: '0xr' }] })
-    expect(guard.mock.calls[1]?.[0]?.chain).toBe('eip155:137')
+    expect(guard.mock.calls[1]?.[0]?.meta.chain).toBe('eip155:137')
   })
 })

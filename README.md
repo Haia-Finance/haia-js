@@ -12,8 +12,8 @@ with minimal code on the integrator side.
 
 | Пакет | Назначение |
 |---|---|
-| [`@haia/types`](./packages/types) | Контракт без рантайма: `TransactionContext`, `Verdict`, события |
-| [`@haia/core`](./packages/core) | Клиент policy `/evaluate`, ingest-клиент, нормализация, EIP-1193 guard-kernel |
+| [`@haia/types`](./packages/types) | Wire-контракт без рантайма: `Facts`, `Verdict`, события |
+| [`@haia/core`](./packages/core) | Клиент policy `/evaluate`, ingest-клиент, identity, runtime-инъекции |
 | [`@haia/wagmi`](./packages/wagmi) | Референс-адаптер для viem / wagmi |
 | `tooling/*` | Общие конфиги (`@haia/tsconfig`, `@haia/biome-config`) |
 

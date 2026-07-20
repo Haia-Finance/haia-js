@@ -1,4 +1,4 @@
-import type { TransactionContext } from '@haia/types'
+import type { Facts, FailMode } from '@haia/types'
 import type { HaiaClient } from './client'
 import { toCaip2 } from './normalize/chain'
 import { decodeApproval, decodePermit } from './normalize/intent'
@@ -47,7 +47,11 @@ const GATED_METHODS = new Set([
 /**
  * Оборачивает EIP-1193 provider: гейтит отправку транзакций и подпись typed-data
  * через policy, после успеха шлёт fire-and-forget аналитику. Батч (wallet_sendCalls)
- * оценивается покалльно — если хоть один call отклонён, весь запрос блокируется.
+ * оценивается покалльно — если хоть один call отклонён, `guard` бросает
+ * `HaiaPolicyError` и весь запрос не уходит в кошелёк.
+ *
+ * Клиент НЕ решает, гейтится ли действие: всё перехваченное уходит на сервер,
+ * негейченное получает быстрый `approved (not_gated)`.
  */
 export function wrapEip1193Provider(
   provider: Eip1193Provider,
@@ -66,25 +70,21 @@ export function wrapEip1193Provider(
     if (!GATED_METHODS.has(reqArgs.method)) {
       return forward(...args)
     }
+    // Отклонение любого из фактов бросит HaiaPolicyError наружу — до forward
+    // дело не дойдёт, подпись не запрашивается.
     const evaluated = await Promise.all(
-      buildContexts(reqArgs, resolveChainId()).map(async (ctx) => ({
-        ctx,
-        verdict: await client.guard(ctx),
+      buildFacts(reqArgs, resolveChainId()).map(async (facts) => ({
+        facts,
+        verdict: await client.guard(facts, { failMode: failModeFor(facts.typeKey) }),
       })),
     )
-    const blocked = evaluated.find((e) => e.verdict.decision === 'rejected')
-    if (blocked) {
-      throw new Error(
-        `haia: transaction blocked (${blocked.verdict.reasons?.join(', ') ?? 'policy'})`,
-      )
-    }
     const result = await forward(...args)
-    for (const { ctx, verdict } of evaluated) {
-      client.track(ctx.eventType, {
-        decision: verdict.decision,
-        chain: ctx.chain,
-        clientEventId: ctx.clientEventId,
-      })
+    for (const { facts, verdict } of evaluated) {
+      client.track(
+        facts.typeKey,
+        { decision: verdict.decision, chain: facts.meta.chain },
+        facts.clientEventId,
+      )
     }
     return result
   }) as Eip1193Provider['request']
@@ -111,19 +111,40 @@ export function wrapEip1193Provider(
   })
 }
 
-/** Строит один или несколько контекстов из запроса (батч ⇒ несколько). */
-function buildContexts(args: Eip1193RequestArgs, chainId: string | number): TransactionContext[] {
+/**
+ * Закрытый enum ключей EVM-семейства. Это деталь механики семейного слоя, а не
+ * контракта: сервер принимает произвольную строку.
+ */
+const TYPE_KEYS = {
+  transfer: 'transfer_intent',
+  approval: 'token_approval',
+  contractCall: 'contract_call',
+  signMessage: 'sign_message',
+} as const
+
+/** Денежный класс действия → fail-closed; подпись сообщения → fail-open. */
+function failModeFor(typeKey: string): FailMode {
+  return typeKey === TYPE_KEYS.signMessage ? 'open' : 'closed'
+}
+
+/** Строит один или несколько конвертов фактов из запроса (батч ⇒ несколько). */
+function buildFacts(args: Eip1193RequestArgs, chainId: string | number): Facts[] {
   if (args.method === 'wallet_sendCalls') {
     const env = (args.params?.[0] ?? {}) as SendCallsParams
     const chain = env.chainId ?? chainId
     const calls = env.calls ?? []
-    if (calls.length === 0) return [txContext({ from: env.from }, chain)]
-    return calls.map((call) => txContext({ from: env.from, ...call }, chain))
+    if (calls.length === 0) return [txFacts({ from: env.from }, chain)]
+    return calls.map((call) => txFacts({ from: env.from, ...call }, chain))
   }
   if (args.method.startsWith('eth_signTypedData')) {
-    return [typedDataContext(args.params, chainId)]
+    return [typedDataFacts(args.params, chainId)]
   }
-  return [txContext((args.params?.[0] ?? {}) as RawTx, chainId)]
+  return [txFacts((args.params?.[0] ?? {}) as RawTx, chainId)]
+}
+
+/** Отбрасывает undefined: meta плоская, пустые ключи в неё не попадают. */
+function compact(meta: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined))
 }
 
 /** Парсит EIP-1193 value (hex quantity) → wei-string; малформенный → undefined. */
@@ -136,21 +157,33 @@ function parseValue(value?: string): string | undefined {
   }
 }
 
-function txContext(tx: RawTx, chainId: string | number): TransactionContext {
+/** Селектор — первые 4 байта calldata; ключ словаря конвенций. */
+function selectorOf(data?: string): string | undefined {
+  return data && data.length >= 10 ? data.slice(0, 10) : undefined
+}
+
+function txFacts(tx: RawTx, chainId: string | number): Facts {
   const approval = decodeApproval(tx.data)
   const hasCalldata = !!tx.data && tx.data !== '0x'
   return {
     clientEventId: randomId(),
     // Не помечаем произвольный контракт-вызов как transfer_intent: только
     // нативный перевод без calldata — transfer_intent.
-    eventType: approval ? 'token_approval' : hasCalldata ? 'contract_call' : 'transfer_intent',
-    chain: toCaip2(chainId),
-    from: tx.from,
-    to: tx.to,
-    amountRaw: parseValue(tx.value),
-    spender: approval?.spender,
-    isUnlimitedApproval: approval?.isUnlimitedApproval,
-    method: approval?.method,
+    typeKey: approval
+      ? TYPE_KEYS.approval
+      : hasCalldata
+        ? TYPE_KEYS.contractCall
+        : TYPE_KEYS.transfer,
+    meta: compact({
+      chain: toCaip2(chainId),
+      from: tx.from,
+      to: tx.to,
+      amountRaw: parseValue(tx.value),
+      spender: approval?.spender,
+      isUnlimitedApproval: approval?.isUnlimitedApproval,
+      method: approval?.method,
+      selector: selectorOf(tx.data),
+    }),
   }
 }
 
@@ -158,22 +191,21 @@ interface TypedDataDomain {
   domain?: { chainId?: number | string; verifyingContract?: string }
 }
 
-function typedDataContext(
-  params: unknown[] | undefined,
-  chainId: string | number,
-): TransactionContext {
+function typedDataFacts(params: unknown[] | undefined, chainId: string | number): Facts {
   const { signer, typedData } = parseTypedData(params)
   const permit = decodePermit(typedData)
   const domainChain = typedData?.domain?.chainId
   return {
     clientEventId: randomId(),
-    eventType: permit ? 'token_approval' : 'sign_message',
-    chain: toCaip2(domainChain ?? chainId),
-    from: signer,
-    to: typedData?.domain?.verifyingContract,
-    spender: permit?.spender,
-    isUnlimitedApproval: permit?.isUnlimitedApproval,
-    method: permit?.method,
+    typeKey: permit ? TYPE_KEYS.approval : TYPE_KEYS.signMessage,
+    meta: compact({
+      chain: toCaip2(domainChain ?? chainId),
+      from: signer,
+      to: typedData?.domain?.verifyingContract,
+      spender: permit?.spender,
+      isUnlimitedApproval: permit?.isUnlimitedApproval,
+      method: permit?.method,
+    }),
   }
 }
 

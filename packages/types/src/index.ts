@@ -1,72 +1,64 @@
 /**
- * Контракт Haia-адаптеров. Чистые типы без рантайма — на них могут зависеть и
+ * Wire-контракт Haia. Чистые типы без рантайма — на них могут зависеть и
  * серверные TS-потребители, не таща рантайм `@haia/core`.
  */
 
 /** CAIP-2 chain id, например "eip155:1". */
 export type CaipChainId = string
 
-export interface AssetRef {
-  chain: CaipChainId
-  address?: string
-  symbol?: string
-  decimals?: number
-}
+/**
+ * Ключ вида действия. На wire — непрозрачная строка в неймспейсе haia-cp:
+ * сервер не валидирует её против закрытого списка, незнакомый ключ просто не
+ * гейтится. Закрытые enum-ы своих ключей держат семейные слои (`@haia/evm` и
+ * далее) — это деталь их механики, а не контракта.
+ */
+export type TypeKey = string
 
 /**
- * Тип намерения. Намеренно абстрактен (не «EOA tx»), чтобы ERC-4337 (P1) мог
- * заполнить контекст из UserOperation без изменения ядра.
+ * Конверт фактов — тело `POST /v1/projects/{projectId}/policy/evaluate`.
+ *
+ * Обязательны только `clientEventId` и `typeKey`; `meta` плоская и не
+ * валидируется (schema-on-read). Имена ключей `meta` — де-факто контракт для
+ * правил паков, поэтому берутся из общего словаря конвенций (`chain`, `from`,
+ * `to`, `amount`, `amountRaw`, `spender`, `isUnlimitedApproval`, `method`,
+ * `selector`, …), а не изобретаются на месте.
+ *
+ * Дисциплина значений: суммы — строго строками (человекочитаемая + minor
+ * units), chain — CAIP-2, float запрещён. Секреты и чувствительные PII в `meta`
+ * запрещены.
  */
-export type EventType =
-  | 'transfer_intent'
-  | 'swap_intent'
-  | 'bridge_intent'
-  | 'token_approval'
-  | 'contract_call'
-  | 'sign_message'
-  | 'wallet_connected'
-
-/**
- * Каноническое описание намерения, которое кормит и policy `/evaluate`, и ingest.
- * Суммы — строго decimal-as-string, никакого float. Chain — CAIP-2.
- */
-export interface TransactionContext {
-  /** ULID — идемпотентность + корреляция intent↔completed. */
+export interface Facts {
+  /** ULID/UUID, генерируется на действие: идемпотентность + корреляция намерение↔решение↔исполнение. */
   clientEventId: string
-  eventType: EventType
-  chain: CaipChainId
-  asset?: AssetRef
-  /** Человекочитаемая сумма, decimal-as-string. */
-  amount?: string
-  /** Сырая сумма в минимальных единицах (wei), string. */
-  amountRaw?: string
-  /** Отправитель. Необязателен: многие EIP-1193 кошельки заполняют его сами. */
-  from?: string
-  to?: string
-  /** Для approve — кому выдаётся аппрув. */
-  spender?: string
-  isUnlimitedApproval?: boolean
-  method?: string
-  /** schema-on-read; без чувствительных полей. */
-  meta?: Record<string, unknown>
+  typeKey: TypeKey
+  /** Плоская, без вложенности. */
+  meta: Record<string, unknown>
 }
 
 export type Decision = 'approved' | 'rejected' | 'flagged'
 
+/**
+ * Вердикт резолвера. Не кэшируется: каждый гейт — реальный вызов, каждое
+ * намерение журналируется на сервере.
+ */
 export interface Verdict {
   decision: Decision
+  /** id решения РЕЗОЛВЕРА (не движка): маппинг на решателей — внутренний. */
   decisionId: string
+  /** Машиночитаемые коды из документированного словаря. */
   reasons?: string[]
-  /** Окно кэша решения, мс (приходит от сервера). */
-  ttlMs?: number
 }
 
 /** Поведение при недоступности policy: open → пропустить, closed → блок. */
 export type FailMode = 'open' | 'closed'
 
-/** Segment-совместимые события холодного пути. */
-export type AnalyticsEvent =
+/**
+ * Segment-совместимые события холодного пути. `clientEventId` (если задан)
+ * служит ключом дедупликации и связывает событие с намерением горячего пути.
+ */
+export type AnalyticsEvent = { clientEventId?: string } & (
   | { type: 'track'; event: string; properties?: Record<string, unknown> }
   | { type: 'identify'; userId: string; traits?: Record<string, unknown> }
   | { type: 'page'; name?: string; properties?: Record<string, unknown> }
   | { type: 'screen'; name?: string; properties?: Record<string, unknown> }
+)

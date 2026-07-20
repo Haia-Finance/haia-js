@@ -1,15 +1,16 @@
-import type { TransactionContext, Verdict } from '@haia/types'
+import type { Facts, Verdict } from '@haia/types'
 import { describe, expect, it, vi } from 'vitest'
 import type { HaiaClient } from './client'
+import { HaiaPolicyError } from './errors'
 import { type Eip1193Provider, wrapEip1193Provider } from './kernel'
 
+/** Мимикрирует фасад: на rejected `guard` бросает, а не возвращает вердикт. */
 function fakeClient(decision: Verdict['decision'] = 'approved') {
-  const guard = vi.fn(
-    async (_ctx: TransactionContext): Promise<Verdict> => ({
-      decision,
-      decisionId: 'd',
-    }),
-  )
+  const guard = vi.fn(async (facts: Facts): Promise<Verdict> => {
+    const verdict: Verdict = { decision, decisionId: 'd', reasons: ['test'] }
+    if (decision === 'rejected') throw new HaiaPolicyError(verdict, facts)
+    return verdict
+  })
   const track = vi.fn()
   const client = { guard, track } as unknown as HaiaClient
   return { client, guard, track }
@@ -37,11 +38,12 @@ describe('wrapEip1193Provider', () => {
     })
 
     expect(guard.mock.calls.length).toBe(2)
-    const approveCtx = guard.mock.calls[0]?.[0]
-    expect(approveCtx?.eventType).toBe('token_approval')
-    expect(approveCtx?.isUnlimitedApproval).toBe(true)
-    const transferCtx = guard.mock.calls[1]?.[0]
-    expect(transferCtx?.eventType).toBe('transfer_intent')
+    const approve = guard.mock.calls[0]?.[0]
+    expect(approve?.typeKey).toBe('token_approval')
+    expect(approve?.meta.isUnlimitedApproval).toBe(true)
+    expect(approve?.meta.selector).toBe('0x095ea7b3')
+    const transfer = guard.mock.calls[1]?.[0]
+    expect(transfer?.typeKey).toBe('transfer_intent')
     expect(request.mock.calls.length).toBe(1)
   })
 
@@ -58,10 +60,10 @@ describe('wrapEip1193Provider', () => {
     const owner = `0x${'1'.repeat(40)}`
     await wrapped.request({ method: 'eth_signTypedData_v4', params: [owner, typed] })
 
-    const ctx = guard.mock.calls[0]?.[0]
-    expect(ctx?.eventType).toBe('token_approval')
-    expect(ctx?.spender).toBe('0xspender')
-    expect(ctx?.isUnlimitedApproval).toBe(true)
+    const permit = guard.mock.calls[0]?.[0]
+    expect(permit?.typeKey).toBe('token_approval')
+    expect(permit?.meta.spender).toBe('0xspender')
+    expect(permit?.meta.isUnlimitedApproval).toBe(true)
   })
 
   it('labels a plain contract call as contract_call, not transfer_intent', async () => {
@@ -74,7 +76,7 @@ describe('wrapEip1193Provider', () => {
       params: [{ to: '0xcontract', data: '0xdeadbeef' }],
     })
 
-    expect(guard.mock.calls[0]?.[0]?.eventType).toBe('contract_call')
+    expect(guard.mock.calls[0]?.[0]?.typeKey).toBe('contract_call')
   })
 
   it('blocks and does not forward when policy rejects', async () => {
@@ -84,7 +86,7 @@ describe('wrapEip1193Provider', () => {
 
     await expect(
       wrapped.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0x1' }] }),
-    ).rejects.toThrow(/blocked/)
+    ).rejects.toBeInstanceOf(HaiaPolicyError)
     expect(request.mock.calls.length).toBe(0)
   })
 
@@ -107,7 +109,7 @@ describe('wrapEip1193Provider', () => {
     await expect(
       wrapped.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0xZZ' }] }),
     ).resolves.toBe('0xhash')
-    expect(guard.mock.calls[0]?.[0]?.amountRaw).toBeUndefined()
+    expect(guard.mock.calls[0]?.[0]?.meta.amountRaw).toBeUndefined()
   })
 
   it('forwards extra request arguments (viem options) to the provider', async () => {

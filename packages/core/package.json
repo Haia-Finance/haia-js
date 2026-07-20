@@ -1,7 +1,7 @@
 {
   "name": "@haia/core",
   "version": "0.0.0",
-  "description": "Haia adapter core: policy /evaluate client, ingest client, normalization, EIP-1193 guard kernel.",
+  "description": "Haia SDK core: policy evaluate client, ingest client, identity, runtime injection.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",

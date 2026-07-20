@@ -1,7 +1,7 @@
 {
   "name": "@haia/types",
   "version": "0.0.0",
-  "description": "Shared contract types for Haia adapters (TransactionContext, Verdict, analytics events).",
+  "description": "Haia wire contract types (Facts, Verdict, analytics events).",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
