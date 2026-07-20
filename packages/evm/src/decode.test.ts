@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { weiToDecimalString } from './amount'
 import { toCaip2 } from './chain'
-import { decodeApproval, decodePermit } from './intent'
+import { decodeApproval, decodePermit } from './decode'
 
 describe('toCaip2', () => {
   it('normalizes aliases and numeric ids', () => {

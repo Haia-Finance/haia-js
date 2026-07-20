@@ -20,13 +20,6 @@ export {
 } from './config'
 export { asHaiaPolicyError, HaiaPolicyError } from './errors'
 export { Identity } from './identity/identity'
-export {
-  type Eip1193Provider,
-  type Eip1193RequestArgs,
-  wrapEip1193Provider,
-} from './kernel'
-export { weiToDecimalString } from './normalize/amount'
-export { toCaip2 } from './normalize/chain'
-export { type DecodedApproval, decodeApproval, decodePermit } from './normalize/intent'
 export { type GuardOptions, PolicyClient } from './policy/client'
 export type { KeyValueStorage, Runtime } from './runtime'
+export { newClientEventId } from './util'

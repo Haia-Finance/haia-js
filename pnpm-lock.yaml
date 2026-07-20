@@ -58,6 +58,28 @@ importers:
         specifier: 'catalog:'
         version: 2.1.9
 
+  packages/evm:
+    dependencies:
+      '@haia/core':
+        specifier: workspace:*
+        version: link:../core
+      '@haia/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@haia/tsconfig':
+        specifier: workspace:*
+        version: link:../../tooling/tsconfig
+      tsup:
+        specifier: 'catalog:'
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 2.1.9
+
   packages/types:
     devDependencies:
       '@haia/tsconfig':
@@ -78,6 +100,9 @@ importers:
       '@haia/core':
         specifier: workspace:*
         version: link:../core
+      '@haia/evm':
+        specifier: workspace:*
+        version: link:../evm
     devDependencies:
       '@haia/tsconfig':
         specifier: workspace:*

@@ -13,8 +13,9 @@ with minimal code on the integrator side.
 | Пакет | Назначение |
 |---|---|
 | [`@haia/types`](./packages/types) | Wire-контракт без рантайма: `Facts`, `Verdict`, события |
-| [`@haia/core`](./packages/core) | Клиент policy `/evaluate`, ingest-клиент, identity, runtime-инъекции |
-| [`@haia/wagmi`](./packages/wagmi) | Референс-адаптер для viem / wagmi |
+| [`@haia/core`](./packages/core) | Универсальное ядро: policy `/evaluate`, ingest, identity, runtime-инъекции. Ничего не знает про EVM и провайдеров |
+| [`@haia/evm`](./packages/evm) | Семейный слой EVM: перехват EIP-1193, декод calldata, нормализация в факты |
+| [`@haia/wagmi`](./packages/wagmi) | Тонкий адаптер для viem / wagmi поверх `@haia/evm` |
 | `tooling/*` | Общие конфиги (`@haia/tsconfig`, `@haia/biome-config`) |
 
 ## Tooling

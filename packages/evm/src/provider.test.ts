@@ -1,8 +1,8 @@
+import type { HaiaClient } from '@haia/core'
+import { HaiaPolicyError } from '@haia/core'
 import type { Facts, Verdict } from '@haia/types'
 import { describe, expect, it, vi } from 'vitest'
-import type { HaiaClient } from './client'
-import { HaiaPolicyError } from './errors'
-import { type Eip1193Provider, wrapEip1193Provider } from './kernel'
+import { type Eip1193Provider, wrapEip1193Provider } from './provider'
 
 /** Мимикрирует фасад: на rejected `guard` бросает, а не возвращает вердикт. */
 function fakeClient(decision: Verdict['decision'] = 'approved') {
@@ -88,6 +88,44 @@ describe('wrapEip1193Provider', () => {
       wrapped.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0x1' }] }),
     ).rejects.toBeInstanceOf(HaiaPolicyError)
     expect(request.mock.calls.length).toBe(0)
+  })
+
+  it('gates eth_signTransaction — signing is where the money is committed', async () => {
+    const { client, guard } = fakeClient()
+    const request = vi.fn(async () => '0xsigned')
+    const wrapped = wrapEip1193Provider({ request }, client, 1)
+
+    await wrapped.request({
+      method: 'eth_signTransaction',
+      params: [{ to: '0xtoken', data: APPROVE_UNLIMITED }],
+    })
+
+    expect(guard.mock.calls.length).toBe(1)
+    expect(guard.mock.calls[0]?.[0]?.typeKey).toBe('token_approval')
+  })
+
+  it('does NOT gate eth_sendRawTransaction (HAD-333 decision)', async () => {
+    // Транзакция уже подписана: гейт здесь предотвращает только бродкаст, а
+    // подписанную транзакцию можно отправить в любой публичный RPC мимо нас.
+    // См. обоснование в methods.ts — если решение меняется, падает этот тест.
+    const { client, guard } = fakeClient()
+    const request = vi.fn(async () => '0xhash')
+    const wrapped = wrapEip1193Provider({ request }, client, 1)
+
+    await wrapped.request({ method: 'eth_sendRawTransaction', params: ['0xf86c...'] })
+
+    expect(guard.mock.calls.length).toBe(0)
+    expect(request.mock.calls.length).toBe(1)
+  })
+
+  it('does not gate personal_sign (not the protocol money surface)', async () => {
+    const { client, guard } = fakeClient()
+    const request = vi.fn(async () => '0xsig')
+    const wrapped = wrapEip1193Provider({ request }, client, 1)
+
+    await wrapped.request({ method: 'personal_sign', params: ['0xdeadbeef', '0xacc'] })
+
+    expect(guard.mock.calls.length).toBe(0)
   })
 
   it('passes through non-gated methods untouched', async () => {

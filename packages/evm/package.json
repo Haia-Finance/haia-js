@@ -1,7 +1,7 @@
 {
-  "name": "@haia/wagmi",
+  "name": "@haia/evm",
   "version": "0.0.0",
-  "description": "Haia adapter for viem / wagmi: gate transactions through policy and emit analytics.",
+  "description": "Haia EVM family layer: EIP-1193 interception, calldata decoding, normalization into wire facts.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -17,16 +17,6 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
-    },
-    "./connector": {
-      "import": {
-        "types": "./dist/connector.d.ts",
-        "default": "./dist/connector.js"
-      },
-      "require": {
-        "types": "./dist/connector.d.cts",
-        "default": "./dist/connector.cjs"
-      }
     }
   },
   "files": [
@@ -39,23 +29,12 @@
   },
   "dependencies": {
     "@haia/core": "workspace:*",
-    "@haia/evm": "workspace:*"
-  },
-  "peerDependencies": {
-    "viem": "^2.0.0",
-    "@wagmi/core": "^2.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@wagmi/core": {
-      "optional": true
-    }
+    "@haia/types": "workspace:*"
   },
   "devDependencies": {
     "@haia/tsconfig": "workspace:*",
-    "@wagmi/core": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
-    "viem": "catalog:",
     "vitest": "catalog:"
   }
 }

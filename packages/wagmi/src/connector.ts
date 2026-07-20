@@ -1,4 +1,5 @@
-import { type Eip1193Provider, type HaiaClient, wrapEip1193Provider } from '@haia/core'
+import type { HaiaClient } from '@haia/core'
+import { type Eip1193Provider, wrapEip1193Provider } from '@haia/evm'
 import type { Connector, CreateConnectorFn } from '@wagmi/core'
 import { type Hex, hexToNumber } from 'viem'
 
