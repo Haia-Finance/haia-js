@@ -8,8 +8,6 @@ import { GATED_METHODS } from './methods'
  * wrapper покрывает их разом, адаптеры остаются тонкими.
  */
 
-export type { Eip1193RequestArgs } from './facts'
-
 export interface Eip1193Provider {
   request(args: Eip1193RequestArgs): Promise<unknown>
 }

@@ -14,6 +14,23 @@ export type CaipChainId = string
  */
 export type TypeKey = string
 
+declare const clientEventIdBrand: unique symbol
+
+/**
+ * Идентификатор действия: идемпотентность гейта и корреляция
+ * намерение↔решение↔исполнение.
+ *
+ * Тип брендирован намеренно: голая строка не должна попадать в конверт мимо
+ * `newClientEventId()` (генерация) или `asClientEventId()` (проверка границ) —
+ * иначе в журнал утекают id произвольной формы, а идемпотентность держится на
+ * честном слове вызывающего.
+ *
+ * Форма на wire остаётся либеральной (§3.1): sdk генерирует ULID, но приём
+ * ограничен границами и charset-ом, а не схемой — иначе серверные и партнёрские
+ * источники со своими id-форматами не смогли бы пользоваться тем же контрактом.
+ */
+export type ClientEventId = string & { readonly [clientEventIdBrand]: true }
+
 /**
  * Конверт фактов — тело `POST /v1/projects/{projectId}/policy/evaluate`.
  *
@@ -28,8 +45,7 @@ export type TypeKey = string
  * запрещены.
  */
 export interface Facts {
-  /** ULID/UUID, генерируется на действие: идемпотентность + корреляция намерение↔решение↔исполнение. */
-  clientEventId: string
+  clientEventId: ClientEventId
   typeKey: TypeKey
   /** Плоская, без вложенности. */
   meta: Record<string, unknown>

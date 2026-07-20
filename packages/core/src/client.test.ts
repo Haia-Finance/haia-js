@@ -3,10 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { createHaiaClient } from './client'
 import type { HaiaConfig } from './config'
 import { HaiaPolicyError } from './errors'
+import { asClientEventId } from './id'
 import type { Runtime } from './runtime'
 
 function facts(over: Partial<Facts> = {}): Facts {
-  return { clientEventId: '01J9', typeKey: 'token_approval', meta: { chain: 'eip155:1' }, ...over }
+  return {
+    clientEventId: asClientEventId('01J9'),
+    typeKey: 'token_approval',
+    meta: { chain: 'eip155:1' },
+    ...over,
+  }
 }
 
 function runtimeReturning(verdict: Partial<Verdict>): Runtime {

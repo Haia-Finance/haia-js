@@ -1,6 +1,7 @@
 import type { Facts, Verdict } from '@haia/types'
 import { describe, expect, it, vi } from 'vitest'
 import type { HaiaConfig } from '../config'
+import { asClientEventId } from '../id'
 import type { Runtime } from '../runtime'
 import { PolicyClient } from './client'
 
@@ -36,7 +37,7 @@ function ok(verdict: Partial<Verdict> = {}): Response {
 
 function facts(over: Partial<Facts> = {}): Facts {
   return {
-    clientEventId: '01J9ABCDEF',
+    clientEventId: asClientEventId('01J9ABCDEF'),
     typeKey: 'token_approval',
     meta: { chain: 'eip155:1', from: '0xfrom', spender: '0xspender', isUnlimitedApproval: true },
     ...over,
@@ -64,7 +65,7 @@ describe('wire contract (§3)', () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api')
 
-    await client.evaluate(facts({ clientEventId: '01JXYZ' }))
+    await client.evaluate(facts({ clientEventId: asClientEventId('01JXYZ') }))
 
     expect(calls[0]?.init.headers?.['idempotency-key']).toBe('01JXYZ')
   })
@@ -74,7 +75,7 @@ describe('wire contract (§3)', () => {
       n === 1 ? new Response('', { status: 503 }) : ok(),
     )
     const client = new PolicyClient(cfg, runtime, 'https://api')
-    const intent = facts({ clientEventId: '01JRETRY' })
+    const intent = facts({ clientEventId: asClientEventId('01JRETRY') })
 
     await client.evaluate(intent) // 503 → fallback
     await client.evaluate(intent) // ретрай того же намерения

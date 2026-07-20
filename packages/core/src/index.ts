@@ -1,6 +1,7 @@
 export type {
   AnalyticsEvent,
   CaipChainId,
+  ClientEventId,
   Decision,
   Facts,
   FailMode,
@@ -19,7 +20,7 @@ export {
   resolveEndpoints,
 } from './config'
 export { asHaiaPolicyError, HaiaPolicyError } from './errors'
+export { asClientEventId, newClientEventId } from './id'
 export { Identity } from './identity/identity'
 export { type GuardOptions, PolicyClient } from './policy/client'
 export type { KeyValueStorage, Runtime } from './runtime'
-export { newClientEventId } from './util'

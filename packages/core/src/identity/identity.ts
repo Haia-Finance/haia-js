@@ -1,5 +1,5 @@
+import { ulid } from '../id'
 import type { Runtime } from '../runtime'
-import { randomId } from '../util'
 
 const ANON_KEY = 'haia.anonymous_id'
 const USER_KEY = 'haia.user_id'
@@ -13,7 +13,7 @@ export class Identity {
   anonymousId(): string {
     const existing = this.runtime.storage.get(ANON_KEY)
     if (existing) return existing
-    const id = randomId()
+    const id = ulid()
     this.runtime.storage.set(ANON_KEY, id)
     return id
   }

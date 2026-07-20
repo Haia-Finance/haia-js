@@ -100,6 +100,23 @@ describe('facts match the conventions dictionary (§3.1)', () => {
     expect(new Set(facts.map((f) => f.clientEventId)).size).toBe(2)
   })
 
+  it('emits both amount forms for a native transfer (§3.1 dictionary)', () => {
+    const [f] = buildFacts(
+      { method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0x1bc16d674ec80000' }] },
+      1,
+    )
+    expect(f?.meta.amountRaw).toBe('2000000000000000000')
+    expect(f?.meta.amount).toBe('2') // правила паков пишутся и на эту форму тоже
+  })
+
+  it('omits amount for an ERC-20 call, where decimals are unknown', () => {
+    const [f] = buildFacts(
+      { method: 'eth_sendTransaction', params: [{ to: '0xtoken', data: APPROVE_UNLIMITED }] },
+      1,
+    )
+    expect(f?.meta.amount).toBeUndefined()
+  })
+
   it('keeps amounts as strings, never floats (§3.1)', () => {
     const [f] = buildFacts(
       { method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0xde0b6b3a7640000' }] },

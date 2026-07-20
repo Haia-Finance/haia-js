@@ -1,5 +1,6 @@
 import { newClientEventId } from '@haia/core'
 import type { Facts } from '@haia/types'
+import { weiToDecimalString } from './amount'
 import { toCaip2 } from './chain'
 import { decodeApproval, decodePermit } from './decode'
 
@@ -26,7 +27,7 @@ export interface Eip1193RequestArgs {
  * Закрытый enum ключей EVM-семейства. Это деталь механики семейного слоя, а не
  * контракта: сервер принимает произвольную строку.
  */
-const TYPE_KEYS = {
+export const TYPE_KEYS = {
   transfer: 'transfer_intent',
   approval: 'token_approval',
   contractCall: 'contract_call',
@@ -45,8 +46,19 @@ export function buildFacts(args: Eip1193RequestArgs, chainId: string | number): 
   if (args.method.startsWith('eth_signTypedData')) {
     return [typedDataFacts(args.params, chainId)]
   }
-  return [txFacts((args.params?.[0] ?? {}) as RawTx, chainId)]
+  if (TX_SHAPED.has(args.method)) {
+    return [txFacts((args.params?.[0] ?? {}) as RawTx, chainId)]
+  }
+  // Метод попал в GATED_METHODS, но разбирать его здесь не научили: молча
+  // трактовать его params[0] как транзакцию нельзя — в журнал уехали бы
+  // выдуманные факты. Явная ошибка на этапе разработки дешевле тихой лжи.
+  throw new Error(
+    `haia: ${args.method} is gated but has no fact mapping; add a branch in buildFacts`,
+  )
 }
+
+/** Методы, у которых params[0] — объект транзакции (тот же конверт полей). */
+const TX_SHAPED = new Set(['eth_sendTransaction', 'eth_signTransaction'])
 
 /** Отбрасывает undefined: meta плоская, пустые ключи в неё не попадают. */
 function compact(meta: Record<string, unknown>): Record<string, unknown> {
@@ -68,9 +80,13 @@ function selectorOf(data?: string): string | undefined {
   return data && data.length >= 10 ? data.slice(0, 10) : undefined
 }
 
+/** Нативная монета EVM — всегда 18 знаков; для ERC-20 decimals неизвестны. */
+const NATIVE_DECIMALS = 18
+
 function txFacts(tx: RawTx, chainId: string | number): Facts {
   const approval = decodeApproval(tx.data)
   const hasCalldata = !!tx.data && tx.data !== '0x'
+  const amountRaw = parseValue(tx.value)
   return {
     clientEventId: newClientEventId(),
     // Не помечаем произвольный контракт-вызов как transfer_intent: только
@@ -84,7 +100,11 @@ function txFacts(tx: RawTx, chainId: string | number): Facts {
       chain: toCaip2(chainId),
       from: tx.from,
       to: tx.to,
-      amountRaw: parseValue(tx.value),
+      // Словарь конвенций (§3.1) ждёт обе формы: правила паков пишутся и на
+      // человекочитаемую `amount`, и на minor units. Для нативного перевода
+      // decimals известны; у ERC-20 — нет, там остаётся только amountRaw.
+      amount: amountRaw ? weiToDecimalString(amountRaw, NATIVE_DECIMALS) : undefined,
+      amountRaw,
       spender: approval?.spender,
       isUnlimitedApproval: approval?.isUnlimitedApproval,
       method: approval?.method,

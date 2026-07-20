@@ -60,13 +60,13 @@ importers:
 
   packages/evm:
     dependencies:
-      '@haia/core':
-        specifier: workspace:*
-        version: link:../core
       '@haia/types':
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@haia/core':
+        specifier: workspace:*
+        version: link:../core
       '@haia/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig
@@ -96,14 +96,13 @@ importers:
         version: 2.1.9
 
   packages/wagmi:
-    dependencies:
+    devDependencies:
       '@haia/core':
         specifier: workspace:*
         version: link:../core
       '@haia/evm':
         specifier: workspace:*
         version: link:../evm
-    devDependencies:
       '@haia/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/tsconfig

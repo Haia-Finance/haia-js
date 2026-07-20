@@ -1,6 +1,12 @@
 export { weiToDecimalString } from './amount'
 export { toCaip2 } from './chain'
 export { type DecodedApproval, decodeApproval, decodePermit } from './decode'
-export { buildFacts, type Eip1193RequestArgs, type RawTx, type SendCallsParams } from './facts'
+export {
+  buildFacts,
+  type Eip1193RequestArgs,
+  type RawTx,
+  type SendCallsParams,
+  TYPE_KEYS,
+} from './facts'
 export { GATED_METHODS } from './methods'
 export { type Eip1193Provider, wrapEip1193Provider } from './provider'

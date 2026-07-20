@@ -28,13 +28,16 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@haia/core": "workspace:*",
     "@haia/types": "workspace:*"
   },
   "devDependencies": {
+    "@haia/core": "workspace:*",
     "@haia/tsconfig": "workspace:*",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@haia/core": "workspace:^"
   }
 }
