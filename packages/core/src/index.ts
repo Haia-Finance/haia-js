@@ -1,6 +1,5 @@
 export type {
   AnalyticsEvent,
-  CaipChainId,
   ClientEventId,
   Decision,
   Facts,
