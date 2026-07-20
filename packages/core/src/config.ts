@@ -68,9 +68,15 @@ export const FALLBACK_FAIL_MODE: FailMode = 'open'
  */
 export function resolveEndpoints(cfg: HaiaConfig): HaiaEndpoints {
   const base = (cfg.baseUrl ?? DEFAULT_API_BASE).replace(/\/+$/, '')
+  // Явный undefined в overrides отбрасываем: `endpoints: { policy: process.env.X }`
+  // с незаданной переменной иначе затёр бы рабочий URL на undefined, и запросы
+  // молча ушли бы на origin страницы.
+  const overrides = Object.fromEntries(
+    Object.entries(cfg.endpoints ?? {}).filter(([, v]) => v !== undefined),
+  )
   return {
     policy: `${base}/v1/projects/${encodeURIComponent(cfg.projectId)}/policy/evaluate`,
     ingest: `${base}/v1/batch`,
-    ...cfg.endpoints,
+    ...overrides,
   }
 }

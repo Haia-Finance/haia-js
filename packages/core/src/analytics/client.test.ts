@@ -117,6 +117,31 @@ describe('AnalyticsClient', () => {
     await expect(client.flush()).resolves.toBeUndefined()
   })
 
+  it('frees the dedup key when a batch is dropped, so a resend still lands', async () => {
+    let online = false
+    const sent: BatchItem[][] = []
+    const runtime: Runtime = {
+      fetch: (async (_u: string, init: { body?: string }) => {
+        if (!online) throw new Error('offline')
+        sent.push(JSON.parse(init.body ?? '{}').batch)
+        return new Response('', { status: 200 })
+      }) as unknown as typeof fetch,
+      storage: { get: () => null, set: () => {} },
+      now: () => 0,
+    }
+    const client = new AnalyticsClient(cfg, runtime, 'https://api/v1/batch', identity)
+
+    client.enqueue({ type: 'track', event: 'approval', clientEventId: '01J9' })
+    await client.flush() // офлайн → батч роняется после ретраев
+
+    online = true
+    client.enqueue({ type: 'track', event: 'approval', clientEventId: '01J9' }) // повтор
+    await client.flush()
+
+    expect(sent.length).toBe(1)
+    expect(sent[0]?.[0]?.messageId).toBe('01J9')
+  })
+
   it('does not retry a 4xx config error', async () => {
     let attempts = 0
     const runtime: Runtime = {

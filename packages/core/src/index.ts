@@ -18,7 +18,7 @@ export {
   type HaiaFailModeConfig,
   resolveEndpoints,
 } from './config'
-export { HaiaPolicyError } from './errors'
+export { asHaiaPolicyError, HaiaPolicyError } from './errors'
 export { Identity } from './identity/identity'
 export {
   type Eip1193Provider,

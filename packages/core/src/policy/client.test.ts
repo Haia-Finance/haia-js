@@ -156,6 +156,20 @@ describe('fail-mode', () => {
     expect(verdict.decision).toBe('rejected')
   })
 
+  it('keeps money fail-closed when the partner sets only failMode.default', async () => {
+    const { runtime } = recordingRuntime(down)
+    const client = new PolicyClient(
+      { ...cfg, failMode: { default: 'open' } },
+      runtime,
+      'https://api',
+    )
+
+    // default — фолбэк для ключей ВНЕ таблицы конвенций; он не должен снимать
+    // fail-closed с денежных действий (для этого есть явный byTypeKey).
+    expect((await client.evaluate(facts({ typeKey: 'transfer_intent' }))).decision).toBe('rejected')
+    expect((await client.evaluate(facts({ typeKey: 'unknown_key' }))).decision).toBe('approved')
+  })
+
   it('lets partner config override both the table and the family hint', async () => {
     const { runtime } = recordingRuntime(down)
     const client = new PolicyClient(
@@ -169,6 +183,50 @@ describe('fail-mode', () => {
     })
 
     expect(verdict.decision).toBe('approved')
+  })
+})
+
+describe('malformed responses', () => {
+  const cases: Array<[string, string]> = [
+    ['empty object', '{}'],
+    ['unknown decision', '{"decision":"maybe","decisionId":"d"}'],
+    ['missing decisionId', '{"decision":"approved"}'],
+    ['not JSON at all', 'ok'],
+    ['null body', 'null'],
+  ]
+
+  for (const [label, body] of cases) {
+    it(`treats a 200 with ${label} as unavailable, not as approval`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { runtime } = recordingRuntime(() => new Response(body, { status: 200 }))
+      const client = new PolicyClient(cfg, runtime, 'https://api')
+
+      // Денежное действие: сломанный сервис обязан приводить к fail-closed,
+      // а не проскакивать как approved с decision: undefined.
+      const verdict = await client.evaluate(facts({ typeKey: 'transfer_intent' }))
+
+      expect(verdict.decision).toBe('rejected')
+      warn.mockRestore()
+    })
+  }
+
+  it('keeps a well-formed verdict intact and drops non-string reasons', async () => {
+    const { runtime } = recordingRuntime(
+      () =>
+        new Response(
+          JSON.stringify({ decision: 'flagged', decisionId: 'dec_9', reasons: ['a', 7] }),
+          {
+            status: 200,
+          },
+        ),
+    )
+    const client = new PolicyClient(cfg, runtime, 'https://api')
+
+    const verdict = await client.evaluate(facts())
+
+    expect(verdict.decision).toBe('flagged')
+    expect(verdict.decisionId).toBe('dec_9')
+    expect(verdict.reasons).toEqual(['a'])
   })
 })
 

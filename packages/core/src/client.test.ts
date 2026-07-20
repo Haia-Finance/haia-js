@@ -112,6 +112,28 @@ describe('guard outcome contract (§6.5)', () => {
 })
 
 describe('endpoints', () => {
+  it('ignores an explicitly-undefined override instead of erasing the URL', async () => {
+    let url = ''
+    const client = createHaiaClient({
+      ...base,
+      // Типичный источник: `endpoints: { policy: process.env.HAIA_POLICY_URL }`
+      // с незаданной переменной.
+      endpoints: { policy: undefined },
+      runtime: {
+        fetch: (async (u: string) => {
+          url = u
+          return new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }))
+        }) as unknown as typeof fetch,
+        storage: { get: () => null, set: () => {} },
+        now: () => 0,
+      },
+    })
+
+    await client.guard(facts())
+
+    expect(url).toBe('https://api.haia.finance/v1/projects/proj_1/policy/evaluate')
+  })
+
   it('targets the per-project policy path', async () => {
     let url = ''
     const client = createHaiaClient({

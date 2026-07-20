@@ -1,4 +1,4 @@
-import type { Facts, FailMode } from '@haia/types'
+import type { Facts } from '@haia/types'
 import type { HaiaClient } from './client'
 import { toCaip2 } from './normalize/chain'
 import { decodeApproval, decodePermit } from './normalize/intent'
@@ -75,7 +75,10 @@ export function wrapEip1193Provider(
     const evaluated = await Promise.all(
       buildFacts(reqArgs, resolveChainId()).map(async (facts) => ({
         facts,
-        verdict: await client.guard(facts, { failMode: failModeFor(facts.typeKey) }),
+        // Без подсказки failMode: все ключи EVM-семейства уже в таблице
+        // конвенций ядра (DEFAULT_FAIL_MODE_BY_TYPE_KEY) — дублировать её
+        // здесь значило бы завести второй источник правды.
+        verdict: await client.guard(facts),
       })),
     )
     const result = await forward(...args)
@@ -121,11 +124,6 @@ const TYPE_KEYS = {
   contractCall: 'contract_call',
   signMessage: 'sign_message',
 } as const
-
-/** Денежный класс действия → fail-closed; подпись сообщения → fail-open. */
-function failModeFor(typeKey: string): FailMode {
-  return typeKey === TYPE_KEYS.signMessage ? 'open' : 'closed'
-}
 
 /** Строит один или несколько конвертов фактов из запроса (батч ⇒ несколько). */
 function buildFacts(args: Eip1193RequestArgs, chainId: string | number): Facts[] {

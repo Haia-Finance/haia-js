@@ -1,4 +1,4 @@
-import type { Facts, FailMode, Verdict } from '@haia/types'
+import type { Decision, Facts, FailMode, Verdict } from '@haia/types'
 import {
   DEFAULT_FAIL_MODE_BY_TYPE_KEY,
   DEFAULT_LATENCY_BUDGET_MS,
@@ -10,6 +10,25 @@ import { unref } from '../util'
 
 const BREAKER_THRESHOLD = 5
 const BREAKER_COOLDOWN_MS = 10_000
+
+const DECISIONS = new Set<Decision>(['approved', 'rejected', 'flagged'])
+
+/**
+ * Валидация вердикта: доверять `as Verdict` нельзя — гейт обязан отличать
+ * «сервер разрешил» от «сервер ответил мусором».
+ */
+function parseVerdict(body: unknown): Verdict | null {
+  if (!body || typeof body !== 'object') return null
+  const { decision, decisionId, reasons } = body as Record<string, unknown>
+  if (!DECISIONS.has(decision as Decision)) return null
+  if (typeof decisionId !== 'string' || decisionId === '') return null
+  if (reasons !== undefined && !Array.isArray(reasons)) return null
+  return {
+    decision: decision as Decision,
+    decisionId,
+    ...(reasons ? { reasons: reasons.filter((r): r is string => typeof r === 'string') } : {}),
+  }
+}
 
 export interface GuardOptions {
   /**
@@ -32,6 +51,7 @@ export class PolicyClient {
   private failures = 0
   private breakerOpenUntil = 0
   private warnedClientError = false
+  private warnedMalformed = false
 
   constructor(
     private readonly cfg: HaiaConfig,
@@ -77,7 +97,16 @@ export class PolicyClient {
         }
         throw new Error(`policy responded ${res.status}`)
       }
-      const verdict = (await res.json()) as Verdict
+      const verdict = parseVerdict(await res.json())
+      // Невалидное тело при 200 — сломанный сервис, а не разрешение: без
+      // проверки `decision: undefined` дошёл бы до фасада, не совпал бы с
+      // 'rejected' и молча пропустил денежное действие. Считаем это отказом и
+      // применяем fail-mode.
+      if (!verdict) {
+        this.onFailure()
+        this.warnMalformed()
+        return this.fallback(facts, 'malformed_response', opts)
+      }
       this.onSuccess()
       return verdict
     } catch {
@@ -89,15 +118,20 @@ export class PolicyClient {
   }
 
   /**
-   * Приоритет: явный конфиг партнёра → подсказка семейного слоя → дефолт
-   * партнёра → таблица конвенций → `open`.
+   * Приоритет: точечное переопределение партнёра → подсказка семейного слоя →
+   * таблица конвенций → дефолт партнёра → `open`.
+   *
+   * `failMode.default` стоит ПОСЛЕ таблицы намеренно: это фолбэк для ключей,
+   * которых в таблице нет. Иначе партнёр, задавший `default: 'open'` ради
+   * своих кастомных ключей, молча снял бы fail-closed со всех денежных
+   * действий — чтобы ослабить именно их, есть явный `byTypeKey`.
    */
   private resolveFailMode(facts: Facts, opts?: GuardOptions): FailMode {
     return (
       this.cfg.failMode?.byTypeKey?.[facts.typeKey] ??
       opts?.failMode ??
-      this.cfg.failMode?.default ??
       DEFAULT_FAIL_MODE_BY_TYPE_KEY[facts.typeKey] ??
+      this.cfg.failMode?.default ??
       FALLBACK_FAIL_MODE
     )
   }
@@ -114,6 +148,14 @@ export class PolicyClient {
   private onSuccess(): void {
     this.failures = 0
     this.breakerOpenUntil = 0
+  }
+
+  private warnMalformed(): void {
+    if (this.warnedMalformed) return
+    this.warnedMalformed = true
+    console.warn(
+      'haia: policy /evaluate returned 200 with an unrecognised body; treating as unavailable and applying fail-mode.',
+    )
   }
 
   private warnClientError(status: number): void {

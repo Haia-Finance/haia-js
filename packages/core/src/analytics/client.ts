@@ -93,15 +93,25 @@ export class AnalyticsClient {
           },
           body,
         })
+        if (res.ok) return // доставлено — дедуп-ключи остаются, повтор не нужен
         // 4xx (кроме 429) — конфиг/авторизация: ретрай не поможет, роняем батч.
-        if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) return
+        if (res.status >= 400 && res.status < 500 && res.status !== 429) break
       } catch {
         // сетевой сбой — ретраим ниже
       }
       if (attempt < MAX_RETRIES) await this.sleep(RETRY_BASE_MS * 2 ** attempt)
     }
-    // Исчерпали ретраи — намеренно роняем батч: холодный путь никогда не
-    // блокирует приложение и не растит очередь без границ.
+    // Батч не доставлен — роняем его: холодный путь никогда не блокирует
+    // приложение и не растит очередь без границ. Но дедуп-ключи снимаем: иначе
+    // то же событие, отправленное заново, молча отбросилось бы как дубль, и
+    // потеря стала бы окончательной.
+    this.forget(events)
+  }
+
+  private forget(events: QueuedEvent[]): void {
+    for (const { event } of events) {
+      if (event.clientEventId !== undefined) this.seen.delete(event.clientEventId)
+    }
   }
 
   private sleep(ms: number): Promise<void> {
