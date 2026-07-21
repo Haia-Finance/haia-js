@@ -1,0 +1,91 @@
+{
+  "contract": "policy/evaluate",
+  "version": 1,
+  "request": {
+    "method": "POST",
+    "path": "/v1/projects/{projectId}/policy/evaluate",
+    "headers": {
+      "Authorization": "Bearer <publishable key>",
+      "Idempotency-Key": "<clientEventId>"
+    }
+  },
+  "cases": [
+    {
+      "file": "envelopes/valid-ulid.json",
+      "accepted": true,
+      "note": "canonical envelope; ULID id is the SDK norm"
+    },
+    {
+      "file": "envelopes/valid-uuid.json",
+      "accepted": true,
+      "note": "hyphenated UUID id — the id is bounds-checked, never schema-checked"
+    },
+    {
+      "file": "envelopes/valid-minimal.json",
+      "accepted": true,
+      "note": "meta is optional; only clientEventId and typeKey are required"
+    },
+    {
+      "file": "envelopes/valid-forward-compatible.json",
+      "accepted": true,
+      "note": "unknown meta keys are stored verbatim; unknown envelope fields are ignored, not rejected"
+    },
+    {
+      "file": "envelopes/invalid-missing-client-event-id.json",
+      "accepted": false,
+      "reason": "clientEventId is required"
+    },
+    {
+      "file": "envelopes/invalid-missing-type-key.json",
+      "accepted": false,
+      "reason": "typeKey is required"
+    },
+    {
+      "file": "envelopes/invalid-empty-client-event-id.json",
+      "accepted": false,
+      "reason": "clientEventId must be 1-64 chars"
+    },
+    {
+      "file": "envelopes/invalid-empty-type-key.json",
+      "accepted": false,
+      "reason": "typeKey must be non-empty"
+    },
+    {
+      "file": "envelopes/invalid-long-client-event-id.json",
+      "accepted": false,
+      "reason": "clientEventId exceeds 64 chars"
+    },
+    {
+      "file": "envelopes/invalid-charset-client-event-id.json",
+      "accepted": false,
+      "reason": "clientEventId charset is [A-Za-z0-9_-]"
+    },
+    {
+      "file": "envelopes/invalid-oversize-meta.json",
+      "accepted": false,
+      "reason": "meta serialises to more than 65536 bytes"
+    }
+  ],
+  "verdicts": [
+    "verdicts/valid-approved.json",
+    "verdicts/valid-rejected.json"
+  ],
+  "limits": {
+    "clientEventId": {
+      "maxLength": 64,
+      "charset": "[A-Za-z0-9_-]"
+    },
+    "typeKey": {
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "meta": {
+      "maxSerializedBytes": 65536,
+      "note": "size only — no key is required and none is rejected (§3.1 rule 2)"
+    },
+    "body": {
+      "maxBytes": 262144,
+      "note": "transport backstop; exceeding it is 413 payload_too_large, not 422"
+    }
+  }
+}

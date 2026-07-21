@@ -1,0 +1,9 @@
+{
+  "clientEventId": "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+  "typeKey": "transfer_intent",
+  "meta": {
+    "chain": "eip155:137",
+    "amount": "10",
+    "amountRaw": "10000000"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "clientEventId": "01J9ZQK7X8Y2N4M6P0R3S5T7VB",
+  "typeKey": "some_future_action",
+  "meta": {
+    "chain": "eip155:1",
+    "partnerSpecificKey": "anything",
+    "nested": {
+      "kept": true
+    }
+  },
+  "someFutureEnvelopeField": "ignored, not rejected"
+}
