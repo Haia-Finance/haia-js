@@ -198,4 +198,36 @@ describe('wrapEip1193Provider', () => {
     wrapped.removeListener('chainChanged', handler)
     expect(provider.listeners.length).toBe(0) // removeListener matched the same ref
   })
+
+  it('refuses legacy send/sendAsync instead of passing them through ungated', async () => {
+    // Инжектированные кошельки (MetaMask, Coinbase) до сих пор их экспонируют,
+    // а web3.js 1.x и фолбэк ethers v5 ими пользуются: через них уходит тот же
+    // eth_sendTransaction. Прокинуть их означало бы негейченный денежный путь.
+    const { client, guard } = fakeClient()
+    const send = vi.fn()
+    const sendAsync = vi.fn()
+    const wrapped = wrapEip1193Provider(
+      { request: async () => '0xok', send, sendAsync } as unknown as Eip1193Provider,
+      client,
+      1,
+    ) as unknown as { send: () => void; sendAsync: () => void }
+
+    expect(() => wrapped.send()).toThrow(/not gated/)
+    expect(() => wrapped.sendAsync()).toThrow(/not gated/)
+    expect(send).not.toHaveBeenCalled()
+    expect(sendAsync).not.toHaveBeenCalled()
+    expect(guard).not.toHaveBeenCalled()
+  })
+
+  it('lowercases the selector so mixed-case calldata matches pack rules', async () => {
+    const { client, guard } = fakeClient()
+    const wrapped = wrapEip1193Provider({ request: async () => '0xok' }, client, 1)
+
+    await wrapped.request({
+      method: 'eth_sendTransaction',
+      params: [{ to: '0xr', data: APPROVE_UNLIMITED.toUpperCase().replace('0X', '0x') }],
+    })
+
+    expect(guard.mock.calls[0]?.[0]?.meta.selector).toBe('0x095ea7b3')
+  })
 })

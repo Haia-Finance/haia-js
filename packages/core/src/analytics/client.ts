@@ -9,6 +9,8 @@ interface QueuedEvent {
   event: AnalyticsEvent
   anonymousId: string
   userId?: string
+  /** Момент СОБЫТИЯ, не флаша. */
+  timestamp: string
 }
 
 const MAX_SEEN_IDS = 500
@@ -46,10 +48,16 @@ export class AnalyticsClient {
     // Идентичность фиксируется в момент СОБЫТИЯ, а не флаша: иначе identify()
     // внутри того же батча задним числом переприписал бы userId на события,
     // случившиеся до логина.
+    //
+    // Время — по той же причине и в том же месте. Без него Segment-совместимый
+    // приёмник датирует событие временем ПРИЁМА, а между событием и приёмом
+    // лежат интервал флаша (5 с) и ретраи с бэкоффом: порядок событий на
+    // холодном пути переставился бы относительно других батчей.
     this.queue.push({
       event,
       anonymousId: this.identity.anonymousId(),
       userId: event.type === 'identify' ? event.userId : (this.identity.userId() ?? undefined),
+      timestamp: new Date(this.runtime.now()).toISOString(),
     })
     if (this.queue.length >= this.batchSize) {
       void this.flush()
@@ -75,12 +83,15 @@ export class AnalyticsClient {
     const events = this.queue.splice(0, this.queue.length)
     // Идентичность — на КАЖДОМ элементе батча (Segment-совместимо): элементы
     // независимы, конверт несёт только projectId.
-    const batch = events.map(({ event: { clientEventId, ...event }, anonymousId, userId }) => ({
-      ...event,
-      anonymousId,
-      ...(userId ? { userId } : {}),
-      ...(clientEventId ? { messageId: clientEventId } : {}),
-    }))
+    const batch = events.map(
+      ({ event: { clientEventId, ...event }, anonymousId, userId, timestamp }) => ({
+        ...event,
+        anonymousId,
+        timestamp,
+        ...(userId ? { userId } : {}),
+        ...(clientEventId ? { messageId: clientEventId } : {}),
+      }),
+    )
     const body = JSON.stringify({ projectId: this.cfg.projectId, batch })
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {

@@ -75,9 +75,17 @@ function parseValue(value?: string): string | undefined {
   }
 }
 
-/** Селектор — первые 4 байта calldata; ключ словаря конвенций. */
+/**
+ * Селектор — первые 4 байта calldata; ключ словаря конвенций.
+ *
+ * Нижний регистр обязателен: `decodeApproval` матчит селекторы уже
+ * приведёнными, и без того же приведения здесь одна и та же транзакция с
+ * calldata вида `0x095EA7B3…` дала бы `isUnlimitedApproval: true` рядом с
+ * `selector: '0x095EA7B3'` — правило пака, написанное на канонический
+ * селектор, по ней молча не сработало бы.
+ */
 function selectorOf(data?: string): string | undefined {
-  return data && data.length >= 10 ? data.slice(0, 10) : undefined
+  return data && data.length >= 10 ? data.slice(0, 10).toLowerCase() : undefined
 }
 
 /** Нативная монета EVM — всегда 18 знаков; для ERC-20 decimals неизвестны. */

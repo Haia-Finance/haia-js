@@ -29,7 +29,13 @@ export interface HaiaConfig {
   failMode?: HaiaFailModeConfig
   /** Вердикт `rejected`: показать UI с причиной. Вызывается перед throw. */
   onBlocked?: (verdict: Verdict, facts: Facts) => void
-  /** Вердикт `flagged`: step-up подтверждение. По умолчанию действие проходит. */
+  /**
+   * Вердикт `flagged`: уведомление, не гейт. Возвращаемое значение не
+   * ожидается, исключение проглатывается, и действие уходит в кошелёк сразу
+   * после вызова хука — step-up-подтверждение здесь построить нельзя, окно
+   * кошелька откроется раньше, чем пользователь ответит. Для подтверждения
+   * нужен собственный гейт до вызова: `client.guard(facts)` и свой UI.
+   */
   onFlagged?: (verdict: Verdict, facts: Facts) => void
   environment?: string
   runtime?: Partial<Runtime>

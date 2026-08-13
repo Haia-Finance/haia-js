@@ -10,6 +10,7 @@ interface BatchItem {
   userId?: string
   messageId?: string
   event?: string
+  timestamp?: string
 }
 
 function capturing(): {
@@ -77,6 +78,26 @@ describe('AnalyticsClient', () => {
     expect(batch[0]?.userId).toBeUndefined() // до логина — только anonymousId
     expect(batch[1]?.userId).toBe('user-42')
     expect(batch[2]?.userId).toBe('user-42')
+  })
+
+  it('stamps each item with the event time, not the flush time', async () => {
+    // Без timestamp Segment-совместимый приёмник датирует событие приёмом, а
+    // между событием и приёмом лежат интервал флаша и ретраи: порядок событий
+    // на холодном пути переставился бы.
+    const cap = capturing()
+    let clock = 1_000
+    const runtime: Runtime = { ...cap.runtime, now: () => clock }
+    const client = new AnalyticsClient(cfg, runtime, 'https://api/v1/batch', identity)
+
+    client.enqueue({ type: 'track', event: 'first' })
+    clock = 7_000 // прошло время до второго события
+    client.enqueue({ type: 'track', event: 'second' })
+    clock = 60_000 // ... и ещё до флаша
+    await client.flush()
+
+    const batch = cap.body().batch ?? []
+    expect(batch[0]?.timestamp).toBe(new Date(1_000).toISOString())
+    expect(batch[1]?.timestamp).toBe(new Date(7_000).toISOString())
   })
 
   it('authenticates with the publishable key over Basic', async () => {

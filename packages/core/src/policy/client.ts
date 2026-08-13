@@ -30,6 +30,20 @@ function parseVerdict(body: unknown): Verdict | null {
   }
 }
 
+/**
+ * Чтение таблицы только по собственным ключам.
+ *
+ * `typeKey` по контракту — произвольная непрозрачная строка, и партнёр волен
+ * назвать действие `toString` или `constructor`. Прямая индексация объектного
+ * литерала подняла бы такой ключ по цепочке прототипов: вместо `undefined`
+ * вернулась бы функция `Object.prototype`, конфиг партнёра оказался бы
+ * проигнорирован, а в `reasons` уехало бы `fallback_function toString() {…}`.
+ */
+function own(table: Record<string, FailMode> | undefined, key: string): FailMode | undefined {
+  if (!table || !Object.hasOwn(table, key)) return undefined
+  return table[key]
+}
+
 export interface GuardOptions {
   /**
    * Подсказка класса действия от семейного слоя: он знает, денежный ли его
@@ -128,9 +142,9 @@ export class PolicyClient {
    */
   private resolveFailMode(facts: Facts, opts?: GuardOptions): FailMode {
     return (
-      this.cfg.failMode?.byTypeKey?.[facts.typeKey] ??
+      own(this.cfg.failMode?.byTypeKey, facts.typeKey) ??
       opts?.failMode ??
-      DEFAULT_FAIL_MODE_BY_TYPE_KEY[facts.typeKey] ??
+      own(DEFAULT_FAIL_MODE_BY_TYPE_KEY, facts.typeKey) ??
       this.cfg.failMode?.default ??
       FALLBACK_FAIL_MODE
     )

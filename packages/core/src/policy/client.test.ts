@@ -293,4 +293,27 @@ describe('error handling', () => {
 
     expect(verdict.reasons).toContain('unavailable')
   })
+
+  it('does not read fail-mode tables through the prototype chain', async () => {
+    // typeKey по контракту — произвольная непрозрачная строка. Прямая
+    // индексация подняла бы 'toString' из Object.prototype: конфиг партнёра
+    // оказался бы проигнорирован, а в reasons уехала бы функция.
+    const runtime: Runtime = {
+      fetch: (async () => {
+        throw new Error('down')
+      }) as unknown as typeof fetch,
+      storage: { get: () => null, set: () => {} },
+      now: () => 1_000,
+    }
+    const client = new PolicyClient(
+      { ...cfg, failMode: { default: 'closed' } },
+      runtime,
+      'https://api',
+    )
+
+    const verdict = await client.evaluate(facts({ typeKey: 'toString' }))
+
+    expect(verdict.decision).toBe('rejected') // из failMode.default, а не из прототипа
+    expect(verdict.reasons).toEqual(['fallback_closed', 'unavailable'])
+  })
 })

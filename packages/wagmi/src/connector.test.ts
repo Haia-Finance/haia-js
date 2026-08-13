@@ -78,4 +78,22 @@ describe('haiaConnector', () => {
     await p2.request({ method: 'eth_sendTransaction', params: [{ to: '0xr' }] })
     expect(guard.mock.calls[1]?.[0]?.meta.chain).toBe('eip155:137')
   })
+
+  it('refuses a connector that implements getClient', () => {
+    // getConnectorClient в @wagmi/core отдаёт connector.getClient() и не
+    // вызывает getProvider вовсе — подменять было бы нечего, и отправка ушла бы
+    // в кошелёк без единого /evaluate. Отказ на этапе сборки конфига.
+    const client = { guard: vi.fn(), track: vi.fn() } as unknown as HaiaClient
+    const connectorFn = (() => ({
+      id: 'smart-account',
+      name: 'Smart Account',
+      type: 'x',
+      getProvider: async () => ({ request: async () => null }),
+      getClient: async () => ({}),
+    })) as unknown as CreateConnectorFn
+
+    expect(() =>
+      haiaConnector(connectorFn, client)({} as Parameters<CreateConnectorFn>[0]),
+    ).toThrow(/getClient/)
+  })
 })

@@ -74,6 +74,12 @@ export function wrapEip1193Provider(
   return new Proxy(provider, {
     get(target, prop) {
       if (prop === 'request') return request
+      if (
+        LEGACY_RPC_METHODS.has(prop as string) &&
+        typeof Reflect.get(target, prop) === 'function'
+      ) {
+        return legacyRefusal(prop as string)
+      }
       const value = Reflect.get(target, prop)
       if (typeof value !== 'function') return value
       let bound = boundMethods.get(prop)
@@ -84,4 +90,28 @@ export function wrapEip1193Provider(
       return bound
     },
   })
+}
+
+/**
+ * Легаси-транспорты того же провайдера. MetaMask и Coinbase Wallet до сих пор
+ * их экспонируют (проверено на живом инжекте), а web3.js 1.x и фолбэк-путь
+ * ethers v5 ими пользуются. Через них уходит тот же `eth_sendTransaction` —
+ * то есть мимо гейта, если просто прокинуть их дальше.
+ */
+const LEGACY_RPC_METHODS: ReadonlySet<string> = new Set(['send', 'sendAsync'])
+
+/**
+ * Отказ вместо прокидывания. Гейтить их «заодно» нельзя честно: у `send`
+ * сосуществуют две несовместимые сигнатуры (`send(method, params)` у ethers v5
+ * и `send(payload, callback)` у web3.js 1.x), а `sendAsync` работает через
+ * error-first callback с JSON-RPC конвертом. Угадывать форму на денежном пути
+ * дороже, чем отказать: ошибка при интеграции дешевле необъявленного обхода
+ * гейта в проде.
+ */
+function legacyRefusal(name: string): () => never {
+  return () => {
+    throw new Error(
+      `haia: ${name}() is not gated and is refused on a guarded provider — use request({ method, params }) (EIP-1193)`,
+    )
+  }
 }

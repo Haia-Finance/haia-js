@@ -1,4 +1,5 @@
 import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { HaiaConfig } from './config'
 import { asClientEventId } from './id'
@@ -18,7 +19,11 @@ import type { Runtime } from './runtime'
  */
 
 const CONTRACT_URL = new URL('../../../contracts/policy/v1/', import.meta.url)
-const CONTRACT_DIR = CONTRACT_URL.pathname
+// fileURLToPath, а не .pathname: pathname процент-кодирован, и в клоне по пути
+// с пробелом ('~/My Projects/haia-js') existsSync получил бы '%20' и ответил
+// false. Ниже это тихо отключило бы drift-check — ровно ту проверку, ради
+// которой файл существует.
+const CONTRACT_DIR = fileURLToPath(CONTRACT_URL)
 
 function loadJson(rel: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(rel, CONTRACT_URL), 'utf8'))
@@ -175,7 +180,7 @@ describe('SDK разбирает вердикты фикстур', () => {
 // Дрейф: если исходник рядом (локальная разработка), снапшот обязан совпадать
 // байт в байт. В CI без haia-cp проверка пропускается — тест идёт по снапшоту.
 const SIBLING = new URL('../../../../haia-cp/contracts/policy/v1/', import.meta.url)
-describe.skipIf(!existsSync(SIBLING.pathname))('снапшот не разъехался с источником', () => {
+describe.skipIf(!existsSync(fileURLToPath(SIBLING)))('снапшот не разъехался с источником', () => {
   it('каждый вендоренный файл байт-в-байт равен haia-cp', () => {
     const walk = (root: URL, sub = ''): string[] =>
       readdirSync(new URL(sub, root), { withFileTypes: true }).flatMap((e: Dirent) =>
