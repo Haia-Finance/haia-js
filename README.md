@@ -18,6 +18,21 @@ with minimal code on the integrator side.
 | [`@haia/wagmi`](./packages/wagmi) | Тонкий адаптер для viem / wagmi поверх `@haia/evm` |
 | `tooling/*` | Общие конфиги (`@haia/tsconfig`, `@haia/biome-config`) |
 
+## Examples
+
+[`examples/transfer-page`](./examples/transfer-page) — страница перевода на wagmi:
+подключить кошелёк, выбрать сеть, адрес, сумма, Send. Гейт добавляется одной
+обёрткой вокруг коннектора и не появляется ни в форме, ни в обработчике отправки.
+
+```bash
+cd examples/transfer-page
+cp .env.example .env.local   # projectId + publishableKey
+pnpm dev
+```
+
+Примеры приватные и не публикуются, но живут в воркспейсе — то есть потребляют
+пакеты через тот же публичный вход, что и внешний проект.
+
 ## Tooling
 
 pnpm (workspaces + catalog) · Turborepo · Biome · tsup · Changesets · Vitest.
