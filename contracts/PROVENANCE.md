@@ -4,7 +4,7 @@
 Здесь лежит **снапшот** для контрактного теста SDK, чтобы haia-js был
 самодостаточен (в его CI haia-cp не склонирован).
 
-- Источник: `Haia-Finance/haia-cp`, ветка `had-327-haia-js-integration`, `bf0d670`
+- Источник: `Haia-Finance/haia-cp`, ветка `had-340-journal-to-events`, `6f3b9c1`
 - Потребитель: `packages/core/src/contract.test.ts`
 
 ## Дрейф

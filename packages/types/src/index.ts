@@ -32,23 +32,45 @@ declare const clientEventIdBrand: unique symbol
 export type ClientEventId = string & { readonly [clientEventIdBrand]: true }
 
 /**
+ * Ключи идентичности в `meta`.
+ *
+ * По форме — обычные ключи `meta`: необязательные, никогда не отвергаемые.
+ * По смыслу — особые: сервер поднимает их из конверта в собственные колонки
+ * события, которое пишет на каждый вердикт. Строка без них принимается ровно
+ * так же, но её не видит ни одна воронка (все фильтруют по
+ * `COALESCE(user_id, anonymous_id) IS NOT NULL`) и до неё никогда не доберётся
+ * GDPR-каскад — он стирает по пользователю и связанным с ним анонимным id.
+ *
+ * То есть цена их отсутствия — не отказ, а тихо неполные цифры и неудаляемая
+ * запись. Поэтому подмешивает их SDK (`@haia/core` делает это на каждом
+ * `guard()`), а не каждый интегратор по памяти.
+ */
+export interface IdentityMeta {
+  /** Аутентифицированный пользователь партнёра (или адрес кошелька). */
+  userId?: string
+  /** Долигиновый идентификатор устройства; тот же, что у событий аналитики. */
+  anonymousId?: string
+}
+
+/**
  * Конверт фактов — тело `POST /v1/projects/{projectId}/policy/evaluate`.
  *
  * Обязательны только `clientEventId` и `typeKey`; `meta` плоская и не
  * валидируется (schema-on-read). Имена ключей `meta` — де-факто контракт для
- * правил паков, поэтому берутся из общего словаря конвенций (`chain`, `from`,
- * `to`, `amount`, `amountRaw`, `spender`, `isUnlimitedApproval`, `method`,
- * `selector`, …), а не изобретаются на месте.
+ * правил паков, поэтому берутся из общего словаря конвенций (`userId`,
+ * `anonymousId`, `chain`, `from`, `to`, `amount`, `amountRaw`, `spender`,
+ * `isUnlimitedApproval`, `method`, `selector`, …), а не изобретаются на месте.
  *
  * Дисциплина значений: суммы — строго строками (человекочитаемая + minor
  * units), chain — CAIP-2, float запрещён. Секреты и чувствительные PII в `meta`
- * запрещены.
+ * запрещены — идентификаторы вне таблиц конвенций (см. `IdentityMeta`) не
+ * находит запрос на стирание.
  */
 export interface Facts {
   clientEventId: ClientEventId
   typeKey: TypeKey
   /** Плоская, без вложенности. */
-  meta: Record<string, unknown>
+  meta: Record<string, unknown> & IdentityMeta
 }
 
 export type Decision = 'approved' | 'rejected' | 'flagged'

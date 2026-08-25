@@ -21,6 +21,11 @@
       "note": "hyphenated UUID id — the id is bounds-checked, never schema-checked"
     },
     {
+      "file": "envelopes/valid-with-identity.json",
+      "accepted": true,
+      "note": "identity keys in meta: userId / anonymousId are convention, never required, and the server lifts them onto the event it writes"
+    },
+    {
       "file": "envelopes/valid-minimal.json",
       "accepted": true,
       "note": "meta is optional; only clientEventId and typeKey are required"

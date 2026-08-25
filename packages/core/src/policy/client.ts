@@ -1,10 +1,11 @@
-import type { Decision, Facts, FailMode, Verdict } from '@haia/types'
+import type { Decision, Facts, FailMode, IdentityMeta, Verdict } from '@haia/types'
 import {
   DEFAULT_FAIL_MODE_BY_TYPE_KEY,
   DEFAULT_LATENCY_BUDGET_MS,
   FALLBACK_FAIL_MODE,
   type HaiaConfig,
 } from '../config'
+import { IDENTITY_META_KEYS, type IdentitySource } from '../identity/identity'
 import type { Runtime } from '../runtime'
 import { unref } from '../util'
 
@@ -56,21 +57,33 @@ export interface GuardOptions {
  * Клиент горячего пути. Жёсткий timeout = бюджет латентности, fail-mode по
  * классу действия, circuit breaker.
  *
- * Кэша вердиктов НЕТ по построению: каждый гейт — реальный вызов, каждое
- * намерение попадает в серверный журнал. Проверка «гейтится ли действие» —
- * тоже серверная: клиент шлёт всё перехваченное, негейченное получает быстрый
- * `approved` + reason `not_gated`.
+ * Кэша вердиктов НЕТ по построению: каждый гейт — реальный вызов, и каждое
+ * намерение оседает на сервере отдельным событием. Проверка «гейтится ли
+ * действие» — тоже серверная: клиент шлёт всё перехваченное, негейченное
+ * получает быстрый `approved` + reason `not_gated`.
+ *
+ * В конверт подмешивается идентичность (`withIdentity`) — без неё запись
+ * вердикта на сервере не попадает ни в одну воронку и не удаляется по запросу
+ * на стирание.
  */
 export class PolicyClient {
   private failures = 0
   private breakerOpenUntil = 0
   private warnedClientError = false
   private warnedMalformed = false
+  private warnedNoIdentity = false
 
   constructor(
     private readonly cfg: HaiaConfig,
     private readonly runtime: Runtime,
     private readonly endpoint: string,
+    /**
+     * Обязателен, а не опционален: подмешивание идентичности — не украшение
+     * конверта, а то, без чего запись вердикта не видит ни одна воронка.
+     * Необязательный параметр означал бы клиента, который тихо шлёт безличные
+     * конверты, — ровно тот отказ, который эта зависимость и предотвращает.
+     */
+    private readonly identity: IdentitySource,
   ) {}
 
   async evaluate(facts: Facts, opts?: GuardOptions): Promise<Verdict> {
@@ -89,15 +102,17 @@ export class PolicyClient {
         headers: {
           'content-type': 'application/json',
           // Идемпотентность: id принадлежит вызывающему и НЕ перегенерируется
-          // здесь — ретрай того же намерения не плодит записей в журнале и
-          // реплеит уже вынесенное решение.
+          // здесь. Ретрай того же намерения дедуплицируется сервером по этому
+          // ключу; сам вердикт при этом выносится заново — стабильность
+          // `decisionId` контракт (§3.3) объявляет best-effort и не обещает,
+          // стабилен именно `clientEventId`.
           'idempotency-key': facts.clientEventId,
           authorization: `Bearer ${this.cfg.publishableKey}`,
         },
         body: JSON.stringify({
           clientEventId: facts.clientEventId,
           typeKey: facts.typeKey,
-          meta: facts.meta ?? {},
+          meta: this.withIdentity(facts.meta),
         }),
       })
       if (!res.ok) {
@@ -129,6 +144,70 @@ export class PolicyClient {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * Дополняет `meta` идентичностью — на КАЖДОМ вызове, независимо от уровня
+   * врезки (transport, action-level, ручной `guard`). Именно забывчивость
+   * интегратора и есть причина делать это в SDK, поэтому точка одна и обойти
+   * её нельзя.
+   *
+   * Заполнение пустого, а не переопределение: явное значение вызывающего
+   * доходит до сервера неизменным. Исходный объект не мутируется — партнёр
+   * получает свои же `facts` обратно (в том числе внутри `HaiaPolicyError`)
+   * ровно такими, какими передал.
+   */
+  private withIdentity(meta: Facts['meta'] | undefined): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...meta }
+    const missing = IDENTITY_META_KEYS.filter((key) => out[key] == null)
+    // Вызывающий заполнил оба ключа сам — источник не трогаем вовсе. Не
+    // микрооптимизация: чтение `anonymousId` его ПОРОЖДАЕТ и сохраняет, а
+    // партнёру, который гейтит со своей идентичностью и без аналитики, мы бы
+    // тем самым завели в localStorage постоянный идентификатор, которого он не
+    // просил и на который мог не получить согласия.
+    if (missing.length === 0) return out
+
+    const identity = this.readIdentity()
+    for (const key of missing) {
+      const mixed = identity[key]
+      if (mixed !== undefined) out[key] = mixed
+    }
+    if (out.userId == null && out.anonymousId == null) this.noteMissingIdentity()
+    return out
+  }
+
+  /**
+   * Источник идентичности не имеет права уронить гейт: чужая реализация
+   * `IdentitySource` может бросить, а цена этого — неполные цифры, а не
+   * заблокированный перевод.
+   */
+  private readIdentity(): IdentityMeta {
+    try {
+      return this.identity.meta()
+    } catch {
+      return {}
+    }
+  }
+
+  /**
+   * Один раз за сессию и только debug. Безличный конверт — не ошибка: он
+   * принимается, действие гейтится как обычно, теряется лишь аналитическая
+   * достижимость строки. Шуметь на каждый вызов значило бы засорять консоль
+   * партнёра там, где он ничего не сломал.
+   *
+   * Со штатным `Identity` сюда не попасть: он всегда отдаёт `anonymousId`.
+   * Ветка живёт для чужого `IdentitySource`, поэтому и совет указывает на
+   * него, а не на `identify()` — тот ничего не изменит, конверт заполняется
+   * из источника партнёра.
+   */
+  private noteMissingIdentity(): void {
+    if (this.warnedNoIdentity) return
+    this.warnedNoIdentity = true
+    console.debug(
+      'haia: policy envelope carries no userId/anonymousId — the decision is still enforced, ' +
+        'but the analytics row it writes will not be counted by funnels or reachable by erasure. ' +
+        'The configured IdentitySource returned neither key; check its meta() implementation.',
+    )
   }
 
   /**

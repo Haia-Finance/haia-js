@@ -75,17 +75,32 @@ disagree is rejected rather than silently resolved in favour of one.
 Two guarantees, with different strengths, and it is worth knowing which is
 which:
 
-- **No duplicate journal rows — exact.** Enforced by a unique index on
-  `(project_id, client_event_id)`, so it holds under any interleaving.
-- **A retry replays the same `decisionId` — best effort.** The lookup reads
-  the journal, and journal writes are asynchronous, so a retry arriving inside
-  that window (about one storage round trip; longer under backpressure)
-  evaluates again and mints a second `decisionId`.
+- **The same verdict — exact, while packs are stateless.** A retry re-runs the
+  pipeline; the resolver is a pure function of the envelope, so it agrees with
+  itself.
+- **The same `decisionId` — best effort, and not promised.** Re-running mints
+  a new one. Treat `decisionId` as the id *of an answer*, never as a stable
+  key derived from the request — the stable key is `clientEventId`, which is
+  what correlates an intent with its verdict and later with its execution.
 
-While the resolver is a pure function of the envelope the two answers agree,
-so the window costs nothing but an id. A client should still treat
-`decisionId` as the id *of an answer* rather than a stable key derived from
-the request.
+Journalling is deduplicated by `clientEventId` on a best-effort basis too: the
+server drops a retry it can see, and a race between two of its own writers can
+still leave two analytics rows. The record that has to be exact is the policy
+engine's, not this one.
+
+## Identity in `meta`
+
+`userId` and `anonymousId` are ordinary `meta` keys by the rules above —
+optional, never rejected — but the server reads them by name and lifts them
+onto the event it writes. An envelope that carries neither is accepted exactly
+like one that does, and produces a decision record that no funnel counts and
+no erasure request can reach.
+
+Nothing fails when they are missing; the numbers are simply incomplete. That
+is why an SDK should attach them automatically from whatever identity it
+already holds rather than leaving it to each integrator to remember. See
+`envelopes/valid-with-identity.json` and the identifier tables in
+[`docs/guides/policy-meta-keys.md`](../../../docs/guides/policy-meta-keys.md).
 
 ## Changing the contract
 

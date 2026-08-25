@@ -23,7 +23,10 @@ export class HaiaClient {
     const runtime = { ...defaultRuntime(), ...cfg.runtime }
     const endpoints = resolveEndpoints(cfg)
     this.identity = new Identity(runtime)
-    this.policy = new PolicyClient(cfg, runtime, endpoints.policy)
+    // Один и тот же экземпляр Identity уходит и в policy, и в analytics: сервер
+    // склеивает «намерение → вердикт → исполнение» по anonymousId, и две копии
+    // с разными значениями тихо развалили бы воронку, ничего не сломав.
+    this.policy = new PolicyClient(cfg, runtime, endpoints.policy, this.identity)
     this.analytics = new AnalyticsClient(cfg, runtime, endpoints.ingest, this.identity)
   }
 

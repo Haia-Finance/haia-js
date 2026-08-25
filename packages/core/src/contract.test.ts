@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { HaiaConfig } from './config'
 import { asClientEventId } from './id'
+import { IDENTITY_META_KEYS, Identity } from './identity/identity'
 import { PolicyClient } from './policy/client'
 import type { Runtime } from './runtime'
 
@@ -64,10 +65,23 @@ function captureRuntime(response: () => Response): {
       headers = init.headers ?? {}
       return response()
     }) as unknown as typeof fetch,
-    storage: { get: () => null, set: () => {} },
+    storage: (() => {
+      const store = new Map<string, string>()
+      return {
+        get: (k: string) => store.get(k) ?? null,
+        set: (k: string, v: string) => {
+          store.set(k, v)
+        },
+      }
+    })(),
     now: () => 0,
   }
   return { runtime, body: () => sent, headers: () => headers }
+}
+
+/** Identity на том же runtime, что и клиент — как в HaiaClient. */
+function identityOf(runtime: Runtime): Identity {
+  return new Identity(runtime)
 }
 
 describe('манифест покрывает все файлы (никаких незадекларированных фикстур)', () => {
@@ -139,6 +153,7 @@ describe('SDK строит конверт валидной формы', () => {
       cfg,
       cap.runtime,
       'https://api/v1/projects/proj_1/policy/evaluate',
+      identityOf(cap.runtime),
     )
 
     await client.evaluate({
@@ -157,12 +172,54 @@ describe('SDK строит конверт валидной формы', () => {
   })
 })
 
+describe('identity в meta — имена ключей не разъехались с контрактом', () => {
+  // Зеркало TestIdentityConvention на стороне haia-cp: обе реализации сверяют
+  // свои константы с одной фикстурой. Разойдись имена — ни один запрос не
+  // упадёт, просто запись вердикта выпадет из воронок и из GDPR-каскада.
+  const identityCase = index.cases.find((c) => c.file.includes('with-identity'))
+
+  it('манифест объявляет кейс с идентичностью', () => {
+    expect(identityCase, 'index.json потерял envelopes/valid-with-identity.json').toBeDefined()
+    expect(identityCase?.accepted).toBe(true)
+  })
+
+  it('IDENTITY_META_KEYS совпадает с ключами фикстуры', () => {
+    const meta = (loadJson(identityCase?.file ?? '') as { meta: Record<string, unknown> }).meta
+    for (const key of IDENTITY_META_KEYS) {
+      expect(meta, `фикстура не несёт ${key}`).toHaveProperty(key)
+    }
+  })
+
+  it('SDK кладёт оба ключа в конверт авторизованного пользователя', async () => {
+    const cap = captureRuntime(
+      () =>
+        new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
+    )
+    const identity = identityOf(cap.runtime)
+    identity.setUserId('u_8f21c4')
+    const client = new PolicyClient(cfg, cap.runtime, 'https://api', identity)
+
+    await client.evaluate({
+      clientEventId: asClientEventId('01J9ZQK7X8Y2N4M6P0R3S5T7W2'),
+      typeKey: 'transfer_intent',
+      meta: { chain: 'eip155:1' },
+    })
+
+    const meta = cap.body().meta as Record<string, unknown>
+    expect(meta.userId).toBe('u_8f21c4')
+    expect(meta.anonymousId).toEqual(expect.any(String))
+    // Обязательными на wire они НЕ становятся: §3.1 п.1 фиксирует ровно два
+    // обязательных поля, и верхний уровень конверта не меняется.
+    expect(Object.keys(cap.body()).sort()).toEqual(['clientEventId', 'meta', 'typeKey'])
+  })
+})
+
 describe('SDK разбирает вердикты фикстур', () => {
   for (const file of index.verdicts) {
     const verdict = loadJson(file) as { decision: string; decisionId: string; reasons?: string[] }
     it(`${file}: ${verdict.decision} проходит через клиента без искажений`, async () => {
       const cap = captureRuntime(() => new Response(JSON.stringify(verdict), { status: 200 }))
-      const client = new PolicyClient(cfg, cap.runtime, 'https://api')
+      const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
 
       const out = await client.evaluate({
         clientEventId: asClientEventId('01J9ZQK7X8Y2N4M6P0R3S5T7V9'),

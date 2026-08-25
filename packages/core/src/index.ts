@@ -4,6 +4,7 @@ export type {
   Decision,
   Facts,
   FailMode,
+  IdentityMeta,
   TypeKey,
   Verdict,
 } from '@haia/types'
@@ -20,6 +21,6 @@ export {
 } from './config'
 export { asHaiaPolicyError, HaiaPolicyError } from './errors'
 export { asClientEventId, newClientEventId } from './id'
-export { Identity } from './identity/identity'
+export { IDENTITY_META_KEYS, Identity, type IdentitySource } from './identity/identity'
 export { type GuardOptions, PolicyClient } from './policy/client'
 export type { KeyValueStorage, Runtime } from './runtime'

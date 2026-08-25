@@ -77,7 +77,9 @@ plane — тем же телом, каким его отправил SDK. Она
     "from": "0x1111…",
     "to": "0x2222…",
     "amount": "0.01",
-    "amountRaw": "10000000000000000"
+    "amountRaw": "10000000000000000",
+    "userId": "0x1111…",
+    "anonymousId": "01KZWDX9F3B0S2QK7YV4M8N1TG"
   }
 }
 ```
@@ -91,11 +93,16 @@ plane — тем же телом, каким его отправил SDK. Она
 Здесь видно и то, чего в UI нет:
 
 - **`clientEventId` — ULID**, он же `Idempotency-Key` заголовка и `messageId`
-  события холодного пути. По нему намерение, решение и исполнение сшиваются в
-  серверном журнале, а повтор того же намерения реплеит уже вынесенное решение,
-  а не выносит второе.
+  события холодного пути. По нему намерение, решение и исполнение сшиваются на
+  сервере, и по нему же дедуплицируется повтор. А вот `decisionId` на ретрае
+  будет другим: сервер оценивает намерение заново, и контракт объявляет его
+  стабильность best-effort — стабилен `clientEventId`.
 - **Сумма едет двумя формами** — `amount` и `amountRaw`, обе строками. Float на
   денежном пути запрещён.
+- **`userId` / `anonymousId` страница не писала.** Их подмешал SDK: `userId` —
+  из `haia.identify(address)` на шаге 1, `anonymousId` — свой. Сравните
+  последний с тем же ключом в `/v1/batch` ниже: значение то же самое, и именно
+  по нему сервер склеивает намерение с исполнением.
 - **`/v1/batch` приходит позже** горячего пути и пачкой: аналитика
   fire-and-forget, её сбой не виден приложению.
 - **Незнакомый control plane ключ не гейтит молча**: `reasons` объясняет, почему
@@ -159,10 +166,22 @@ VITE_HAIA_BASE_URL=http://localhost:8000
 Проверить, что долетело, можно в самой базе:
 
 ```sh
-docker compose exec postgres psql -U postgres -d haia_cp \
-  -c "SELECT client_event_id, type_key FROM policy_intents ORDER BY created_at DESC LIMIT 5;" \
-  -c "SELECT decision_id, decision, reasons FROM policy_decisions ORDER BY created_at DESC LIMIT 5;"
+docker compose exec postgres psql -U postgres -d haia_cp -c "
+  SELECT client_event_id,
+         user_id, anonymous_id,
+         properties->>'type_key'  AS type_key,
+         properties->>'decision'  AS decision,
+         properties->'reasons'    AS reasons
+  FROM events
+  WHERE event_type = '\$policy_decision'
+  ORDER BY occurred_at DESC LIMIT 5;"
 ```
+
+Журнал политики — обычные события: отдельных таблиц у него больше нет, каждый
+вердикт это строка в `events` с `event_origin='system'`. Поэтому и важны
+колонки `user_id` / `anonymous_id` в выдаче: они заполнены из `meta` конверта,
+и именно их непустота решает, попадёт ли строка в воронки и найдёт ли её запрос
+на стирание. Если обе пусты — SDK отправил безличный конверт.
 
 ## Что здесь настоящее
 

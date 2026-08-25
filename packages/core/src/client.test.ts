@@ -160,3 +160,112 @@ describe('endpoints', () => {
     expect(url).toBe('https://api.haia.finance/v1/projects/proj%2Fwith%20space/policy/evaluate')
   })
 })
+
+describe('identity в конверте (HAD-340)', () => {
+  /** Клиент на памяти, ловит тела и policy-, и ingest-запросов. */
+  function harness() {
+    const store = new Map<string, string>()
+    const sent: { url: string; body: Record<string, unknown> }[] = []
+    const client = createHaiaClient({
+      ...base,
+      baseUrl: 'https://api',
+      runtime: {
+        fetch: (async (url: string, init: { body?: string }) => {
+          sent.push({ url, body: JSON.parse(init.body ?? '{}') })
+          return new Response(JSON.stringify({ decision: 'approved', decisionId: 'dec_1' }), {
+            status: 200,
+          })
+        }) as unknown as typeof fetch,
+        storage: {
+          get: (k) => store.get(k) ?? null,
+          set: (k, v) => {
+            store.set(k, v)
+          },
+        },
+        now: () => 0,
+      },
+    })
+    const policyMeta = () =>
+      sent.find((s) => s.url.includes('/policy/evaluate'))?.body.meta as Record<string, unknown>
+    const batchItems = () =>
+      (sent.find((s) => s.url.endsWith('/v1/batch'))?.body.batch ?? []) as Record<string, unknown>[]
+    return { client, policyMeta, batchItems }
+  }
+
+  it('подмешивает userId и anonymousId в ручной guard()', async () => {
+    const { client, policyMeta } = harness()
+    client.identify('u_42')
+
+    await client.guard(facts())
+
+    expect(policyMeta().userId).toBe('u_42')
+    expect(policyMeta().anonymousId).toEqual(expect.any(String))
+  })
+
+  it('anonymousId конверта побайтово равен anonymous_id событий аналитики', async () => {
+    // Главная ловушка задачи: сервер стыкует «намерение → вердикт →
+    // исполнение» именно по этому идентификатору. Разойдись они — ни один
+    // запрос не упадёт, просто воронка перестанет склеиваться.
+    const { client, policyMeta, batchItems } = harness()
+
+    await client.guard(facts())
+    client.track('transfer_intent', { decision: 'approved' })
+    await client.analytics.flush()
+
+    const hot = policyMeta().anonymousId
+    const cold = batchItems()[0]?.anonymousId
+    expect(hot).toBeTypeOf('string')
+    expect(cold).toBe(hot)
+  })
+
+  it('не перетирает явное значение партнёра', async () => {
+    const { client, policyMeta } = harness()
+    client.identify('u_from_sdk')
+
+    await client.guard(facts({ meta: { chain: 'eip155:1', userId: 'u_from_partner' } }))
+
+    expect(policyMeta().userId).toBe('u_from_partner')
+  })
+
+  it('не мутирует переданные facts', async () => {
+    const { client } = harness()
+    client.identify('u_42')
+    const intent = facts()
+
+    await client.guard(intent)
+
+    // Партнёр получает свои facts обратно такими, какими передал, — в том
+    // числе внутри HaiaPolicyError.
+    expect(intent.meta).toEqual({ chain: 'eip155:1' })
+  })
+
+  it('до логина уходит один ключ, без ошибки', async () => {
+    const { client, policyMeta } = harness()
+
+    await client.guard(facts())
+
+    expect(policyMeta().anonymousId).toEqual(expect.any(String))
+    expect(policyMeta()).not.toHaveProperty('userId')
+  })
+})
+
+describe('заблокированный localStorage (§6.7)', () => {
+  it('createHaiaClient не падает, когда обращение к localStorage бросает', () => {
+    // Chrome/Firefox с заблокированными сторонними куками и песочный iframe
+    // кидают SecurityError на самом ЧТЕНИИ свойства — это не «его нет».
+    // Голое обращение уронило бы конструктор, обещанный чистым.
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('SecurityError')
+      },
+    })
+    try {
+      expect(() => createHaiaClient(base)).not.toThrow()
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'localStorage', original)
+      else Reflect.deleteProperty(globalThis, 'localStorage')
+    }
+  })
+})
