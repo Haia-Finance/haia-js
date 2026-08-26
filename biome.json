@@ -3,6 +3,6 @@
   "extends": ["./tooling/biome-config/biome.json"],
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/dist", "!**/.turbo", "!**/node_modules"]
+    "includes": ["**", "!**/dist", "!**/.turbo", "!**/node_modules", "!contracts"]
   }
 }

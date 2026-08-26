@@ -1,0 +1,43 @@
+{
+  "name": "@haia/evm",
+  "version": "0.0.0",
+  "description": "Haia EVM family layer: EIP-1193 interception, calldata decoding, normalization into wire facts.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@haia/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@haia/core": "workspace:*",
+    "@haia/tsconfig": "workspace:*",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@haia/core": "workspace:^"
+  }
+}

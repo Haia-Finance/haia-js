@@ -1,0 +1,19 @@
+{
+  "clientEventId": "01J9ZQK7X8Y2N4M6P0R3S5T7V9",
+  "typeKey": "token_approval",
+  "meta": {
+    "chain": "eip155:1",
+    "from": "0xAbC0000000000000000000000000000000000001",
+    "to": "0xDeF0000000000000000000000000000000000002",
+    "amount": "1250.5",
+    "amountRaw": "1250500000",
+    "assetAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "assetSymbol": "USDC",
+    "assetDecimals": 6,
+    "method": "approve",
+    "spender": "0x1230000000000000000000000000000000000003",
+    "isUnlimitedApproval": true,
+    "selector": "0x095ea7b3",
+    "screen": "checkout"
+  }
+}

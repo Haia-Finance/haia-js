@@ -1,0 +1,13 @@
+{
+  "clientEventId": "01J9ZQK7X8Y2N4M6P0R3S5T7W2",
+  "typeKey": "transfer_intent",
+  "meta": {
+    "chain": "eip155:1",
+    "from": "0xAbC0000000000000000000000000000000000001",
+    "to": "0xDeF0000000000000000000000000000000000002",
+    "amount": "42.0",
+    "assetSymbol": "USDC",
+    "userId": "u_8f21c4",
+    "anonymousId": "a_1c9d77"
+  }
+}

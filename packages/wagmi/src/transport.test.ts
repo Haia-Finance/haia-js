@@ -1,11 +1,11 @@
-import type { HaiaClient, TransactionContext, Verdict } from '@haia/core'
+import type { Facts, HaiaClient, Verdict } from '@haia/core'
 import type { Transport } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 import { haiaTransport } from './transport'
 
 function fakeClient() {
   const guard = vi.fn(
-    async (_ctx: TransactionContext): Promise<Verdict> => ({
+    async (_facts: Facts): Promise<Verdict> => ({
       decision: 'approved',
       decisionId: 'd',
     }),
@@ -32,7 +32,7 @@ describe('haiaTransport', () => {
     await instance.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0x1' }] })
 
     expect(guard.mock.calls.length).toBe(1)
-    expect(guard.mock.calls[0]?.[0]?.chain).toBe('eip155:1')
+    expect(guard.mock.calls[0]?.[0]?.meta.chain).toBe('eip155:1')
     expect(innerRequest.mock.calls.length).toBe(1)
   })
 

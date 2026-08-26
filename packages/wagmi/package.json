@@ -37,10 +37,9 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {
-    "@haia/core": "workspace:*"
-  },
   "peerDependencies": {
+    "@haia/core": "workspace:^",
+    "@haia/evm": "workspace:^",
     "viem": "^2.0.0",
     "@wagmi/core": "^2.0.0"
   },
@@ -50,6 +49,8 @@
     }
   },
   "devDependencies": {
+    "@haia/core": "workspace:*",
+    "@haia/evm": "workspace:*",
     "@haia/tsconfig": "workspace:*",
     "@wagmi/core": "catalog:",
     "tsup": "catalog:",
