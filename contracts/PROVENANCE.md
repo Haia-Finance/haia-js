@@ -22,17 +22,15 @@ it never carries links or paths that only resolve inside another repository.
 
 ## Keeping it current
 
-By hand, and only the three data paths:
+By hand: copy `policy/v1/` from the source wholesale and update the date above.
+A recursive copy is safe — the source keeps its own prose outside that
+directory for exactly this reason — and the contract test asserts the snapshot
+holds nothing but `index.json`, `envelopes/` and `verdicts/`, so anything
+foreign that does arrive fails loudly instead of landing in the repository
+unnoticed.
 
-```
-index.json
-envelopes/
-verdicts/
-```
-
-When the contract changes, replace them wholesale and update the date above.
-The contract test then either passes against the new files or names what the
-SDK has to change.
+The test then either passes against the new files or names what the SDK has to
+change.
 
 **There is no automated freshness check.** A snapshot that has fallen behind
 its source looks exactly like a current one — the test suite stays green and

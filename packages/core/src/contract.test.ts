@@ -83,6 +83,14 @@ function identityOf(runtime: Runtime): Identity {
 }
 
 describe('the manifest covers every file (no undeclared fixtures)', () => {
+  // The snapshot is data only. A stray file here means a re-vendor copied
+  // something that is not part of the artifact — prose belongs to whoever owns
+  // the directory it lives in, and prose written elsewhere carries links that
+  // do not resolve here.
+  it('holds the manifest and the two fixture directories, nothing else', () => {
+    expect(readdirSync(CONTRACT_DIR).sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
+  })
+
   it('every *.json in envelopes/ and verdicts/ is named in index.json', () => {
     const declared = new Set(['index.json', ...index.cases.map((c) => c.file), ...index.verdicts])
     for (const dir of ['envelopes', 'verdicts']) {
