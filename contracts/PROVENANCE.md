@@ -10,11 +10,29 @@ checked out.
 - Snapshot taken: 2026-08-25
 - Consumer: `packages/core/src/contract.test.ts`
 
+## What is in the snapshot, and what is not
+
+The snapshot is **data only**: `index.json`, `envelopes/` and `verdicts/`.
+Those are the artifact the two implementations have to agree on, and they are
+expected to match their source byte for byte.
+
+Prose is not vendored. `../README.md` describes what the contract says and is
+written and owned here — so an update to the snapshot never overwrites it, and
+it never carries links or paths that only resolve inside another repository.
+
 ## Keeping it current
 
-By hand. When the contract changes, the snapshot is replaced wholesale and the
-date above is updated; the contract test then either passes against the new
-files or names what the SDK has to change.
+By hand, and only the three data paths:
+
+```
+index.json
+envelopes/
+verdicts/
+```
+
+When the contract changes, replace them wholesale and update the date above.
+The contract test then either passes against the new files or names what the
+SDK has to change.
 
 **There is no automated freshness check.** A snapshot that has fallen behind
 its source looks exactly like a current one — the test suite stays green and
@@ -23,9 +41,9 @@ contract change upstream as requiring a re-vendor here in the same cycle.
 
 ## Formatting
 
-`contracts/` is excluded from Biome (see `biome.json`). The files are a copy,
-not source: reformatting them would make them differ from the artifact they
-are supposed to reproduce.
+`contracts/` is excluded from Biome (see `biome.json`). The fixtures are a
+copy, not source: reformatting them would make them differ from the artifact
+they are supposed to reproduce.
 
 ## The mechanism is provisional
 

@@ -25,8 +25,8 @@ Committed content must be self-contained. Do not reference:
   docker profiles, internal hostnames).
 
 When a comment needs a rule that an internal plan states, **state the rule**.
-The public statement of the wire contract is `contracts/policy/v1/README.md` —
-cite that. Every link in the repo must resolve for someone outside the org.
+The public statement of the wire contract is `contracts/README.md` — cite
+that. Every link in the repo must resolve for someone outside the org.
 
 ## Ticket numbers
 
