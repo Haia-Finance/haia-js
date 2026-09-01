@@ -1,6 +1,6 @@
 /**
- * Перевод сырой суммы (wei-scale) в decimal-as-string. Только bigint/строки —
- * никакого float, который «убивает деньги».
+ * Converts a raw amount (wei scale) into a decimal-as-string. bigint and
+ * strings only — no float, which is what destroys money.
  */
 export function weiToDecimalString(raw: bigint | string, decimals: number): string {
   const value = typeof raw === 'bigint' ? raw : BigInt(raw)

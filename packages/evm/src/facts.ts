@@ -24,8 +24,8 @@ export interface Eip1193RequestArgs {
 }
 
 /**
- * Закрытый enum ключей EVM-семейства. Это деталь механики семейного слоя, а не
- * контракта: сервер принимает произвольную строку.
+ * The closed enum of EVM-family keys. A detail of the family layer's machinery,
+ * not of the contract: the server accepts an arbitrary string.
  */
 export const TYPE_KEYS = {
   transfer: 'transfer_intent',
@@ -34,7 +34,7 @@ export const TYPE_KEYS = {
   signMessage: 'sign_message',
 } as const
 
-/** Строит один или несколько конвертов фактов из запроса (батч ⇒ несколько). */
+/** Builds one or more fact envelopes from a request (a batch yields several). */
 export function buildFacts(args: Eip1193RequestArgs, chainId: string | number): Facts[] {
   if (args.method === 'wallet_sendCalls') {
     const env = (args.params?.[0] ?? {}) as SendCallsParams
@@ -49,23 +49,24 @@ export function buildFacts(args: Eip1193RequestArgs, chainId: string | number): 
   if (TX_SHAPED.has(args.method)) {
     return [txFacts((args.params?.[0] ?? {}) as RawTx, chainId)]
   }
-  // Метод попал в GATED_METHODS, но разбирать его здесь не научили: молча
-  // трактовать его params[0] как транзакцию нельзя — в журнал уехали бы
-  // выдуманные факты. Явная ошибка на этапе разработки дешевле тихой лжи.
+  // The method is in GATED_METHODS but nothing here knows how to read it.
+  // Silently treating its params[0] as a transaction is not an option — made-up
+  // facts would go into the journal. An explicit error during development is
+  // cheaper than a quiet lie.
   throw new Error(
     `haia: ${args.method} is gated but has no fact mapping; add a branch in buildFacts`,
   )
 }
 
-/** Методы, у которых params[0] — объект транзакции (тот же конверт полей). */
+/** Methods whose params[0] is a transaction object (the same field envelope). */
 const TX_SHAPED = new Set(['eth_sendTransaction', 'eth_signTransaction'])
 
-/** Отбрасывает undefined: meta плоская, пустые ключи в неё не попадают. */
+/** Drops undefined: meta is flat, and empty keys do not go into it. */
 function compact(meta: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined))
 }
 
-/** Парсит EIP-1193 value (hex quantity) → wei-string; малформенный → undefined. */
+/** Parses an EIP-1193 value (hex quantity) into a wei string; malformed → undefined. */
 function parseValue(value?: string): string | undefined {
   if (!value || value === '0x') return undefined
   try {
@@ -76,19 +77,20 @@ function parseValue(value?: string): string | undefined {
 }
 
 /**
- * Селектор — первые 4 байта calldata; ключ словаря конвенций.
+ * The selector — the first 4 bytes of calldata; a key of the conventions
+ * dictionary.
  *
- * Нижний регистр обязателен: `decodeApproval` матчит селекторы уже
- * приведёнными, и без того же приведения здесь одна и та же транзакция с
- * calldata вида `0x095EA7B3…` дала бы `isUnlimitedApproval: true` рядом с
- * `selector: '0x095EA7B3'` — правило пака, написанное на канонический
- * селектор, по ней молча не сработало бы.
+ * Lowercasing is mandatory: `decodeApproval` matches selectors already
+ * lowercased, and without the same treatment here one and the same transaction
+ * with calldata like `0x095EA7B3…` would produce `isUnlimitedApproval: true`
+ * next to `selector: '0x095EA7B3'` — and a policy rule written against the
+ * canonical selector would silently never match it.
  */
 function selectorOf(data?: string): string | undefined {
   return data && data.length >= 10 ? data.slice(0, 10).toLowerCase() : undefined
 }
 
-/** Нативная монета EVM — всегда 18 знаков; для ERC-20 decimals неизвестны. */
+/** The native EVM coin always has 18 decimals; for ERC-20 the decimals are unknown. */
 const NATIVE_DECIMALS = 18
 
 function txFacts(tx: RawTx, chainId: string | number): Facts {
@@ -97,8 +99,8 @@ function txFacts(tx: RawTx, chainId: string | number): Facts {
   const amountRaw = parseValue(tx.value)
   return {
     clientEventId: newClientEventId(),
-    // Не помечаем произвольный контракт-вызов как transfer_intent: только
-    // нативный перевод без calldata — transfer_intent.
+    // An arbitrary contract call is not labelled transfer_intent: only a
+    // native transfer with no calldata is.
     typeKey: approval
       ? TYPE_KEYS.approval
       : hasCalldata
@@ -108,9 +110,10 @@ function txFacts(tx: RawTx, chainId: string | number): Facts {
       chain: toCaip2(chainId),
       from: tx.from,
       to: tx.to,
-      // Словарь конвенций (§3.1) ждёт обе формы: правила паков пишутся и на
-      // человекочитаемую `amount`, и на minor units. Для нативного перевода
-      // decimals известны; у ERC-20 — нет, там остаётся только amountRaw.
+      // The conventions dictionary expects both forms: policy rules are
+      // written against the human-readable `amount` as well as against minor
+      // units. For a native transfer the decimals are known; for ERC-20 they
+      // are not, and only amountRaw remains.
       amount: amountRaw ? weiToDecimalString(amountRaw, NATIVE_DECIMALS) : undefined,
       amountRaw,
       spender: approval?.spender,
@@ -146,8 +149,9 @@ function typedDataFacts(params: unknown[] | undefined, chainId: string | number)
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/
 
 /**
- * Раскладывает params подписи typed-data. v3/v4: `[address, data]`;
- * legacy eth_signTypedData: `[data, address]`. Адрес определяем по форме.
+ * Unpacks the params of a typed-data signature. v3/v4: `[address, data]`;
+ * legacy eth_signTypedData: `[data, address]`. The address is identified by its
+ * shape.
  */
 function parseTypedData(params: unknown[] | undefined): {
   signer?: string

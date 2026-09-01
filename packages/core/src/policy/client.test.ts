@@ -29,7 +29,7 @@ function recordingRuntime(respond: (n: number) => Response | Promise<Response>):
   return { runtime, calls }
 }
 
-/** Identity поверх памяти — тот же путь, что в браузере без localStorage. */
+/** Identity over memory — the same path as a browser with no localStorage. */
 function testIdentity(userId?: string): Identity {
   const store = new Map<string, string>()
   const identity = new Identity({
@@ -62,7 +62,7 @@ function facts(over: Partial<Facts> = {}): Facts {
   }
 }
 
-describe('wire contract (§3)', () => {
+describe('wire contract', () => {
   it('sends the flat facts envelope with publishable-key bearer auth', async () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(
@@ -77,17 +77,18 @@ describe('wire contract (§3)', () => {
     const { init } = calls[0] as Captured
     expect(init.method).toBe('POST')
     expect(init.headers?.authorization).toBe('Bearer pk_test_123')
-    // Ровно три ключа верхнего уровня — конверт плоский, без вложенности.
+    // Exactly three top-level keys — the envelope is flat, with no nesting.
     const body = JSON.parse(init.body ?? '{}')
     expect(Object.keys(body).sort()).toEqual(['clientEventId', 'meta', 'typeKey'])
     expect(body.typeKey).toBe('token_approval')
     expect(body.meta.isUnlimitedApproval).toBe(true)
   })
 
-  it('пропускает разный decisionId на ретрае, не считая его стабильным', async () => {
-    // Реплея на сервере больше нет: ретрай проходит конвейер заново. Вердикт
-    // при stateless-паках совпадает, decisionId — нет, и §3.3 его стабильность
-    // никогда и не обещал. SDK обязан отдавать то, что ответил сервер.
+  it('passes through a different decisionId on a retry rather than treating it as stable', async () => {
+    // There is no server-side replay: a retry runs the pipeline again. With
+    // stateless packs the verdict matches; the decisionId does not, and the
+    // contract never promised it would. The SDK must return what the server
+    // answered.
     const { runtime } = recordingRuntime((n) =>
       ok({ decisionId: `dec_${n}`, reasons: ['policy_not_configured'] }),
     )
@@ -111,10 +112,10 @@ describe('wire contract (§3)', () => {
     expect(calls[0]?.init.headers?.['idempotency-key']).toBe('01JXYZ')
   })
 
-  // Стабилен именно clientEventId. decisionId на ретрае — другой: сервер
-  // переоценивает намерение заново, а §3.3 объявляет его стабильность
-  // best-effort. Утверждать здесь равенство decisionId значило бы закрепить
-  // тестом гарантию, которой контракт не даёт.
+  // The stable key is clientEventId. On a retry the decisionId differs: the
+  // server re-evaluates the intent, and the contract declares its stability
+  // best-effort. Asserting equality of decisionId here would pin down a
+  // guarantee the contract does not give.
   it('keeps the same clientEventId when the caller retries the same intent', async () => {
     const { runtime, calls } = recordingRuntime((n) =>
       n === 1 ? new Response('', { status: 503 }) : ok(),
@@ -123,7 +124,7 @@ describe('wire contract (§3)', () => {
     const intent = facts({ clientEventId: asClientEventId('01JRETRY') })
 
     await client.evaluate(intent) // 503 → fallback
-    await client.evaluate(intent) // ретрай того же намерения
+    await client.evaluate(intent) // a retry of the same intent
 
     expect(calls.length).toBe(2)
     const ids = calls.map((c) => c.init.headers?.['idempotency-key'])
@@ -132,7 +133,7 @@ describe('wire contract (§3)', () => {
   })
 })
 
-describe('no verdict caching (§3.2)', () => {
+describe('no verdict caching', () => {
   it('hits the network on every guard, even for identical facts', async () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
@@ -211,8 +212,8 @@ describe('fail-mode', () => {
       testIdentity(),
     )
 
-    // default — фолбэк для ключей ВНЕ таблицы конвенций; он не должен снимать
-    // fail-closed с денежных действий (для этого есть явный byTypeKey).
+    // default is the fallback for keys OUTSIDE the conventions table; it must
+    // not remove fail-closed from money actions (byTypeKey exists for that).
     expect((await client.evaluate(facts({ typeKey: 'transfer_intent' }))).decision).toBe('rejected')
     expect((await client.evaluate(facts({ typeKey: 'unknown_key' }))).decision).toBe('approved')
   })
@@ -249,8 +250,8 @@ describe('malformed responses', () => {
       const { runtime } = recordingRuntime(() => new Response(body, { status: 200 }))
       const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
 
-      // Денежное действие: сломанный сервис обязан приводить к fail-closed,
-      // а не проскакивать как approved с decision: undefined.
+      // A money action: a broken service has to produce fail-closed rather than
+      // slipping through as approved with decision: undefined.
       const verdict = await client.evaluate(facts({ typeKey: 'transfer_intent' }))
 
       expect(verdict.decision).toBe('rejected')
@@ -299,7 +300,7 @@ describe('error handling', () => {
 
     for (let i = 0; i < 8; i++) await client.evaluate(facts({ typeKey: 'sign_message' }))
 
-    expect(calls.length).toBe(8) // breaker never opened → каждый вызов дошёл до сети
+    expect(calls.length).toBe(8) // breaker never opened → every call reached the network
     warn.mockRestore()
   })
 
@@ -309,7 +310,7 @@ describe('error handling', () => {
 
     for (let i = 0; i < 8; i++) await client.evaluate(facts({ typeKey: 'sign_message' }))
 
-    expect(calls.length).toBe(5) // порог breaker-а
+    expect(calls.length).toBe(5) // the breaker threshold
   })
 
   it('applies fail-mode — not a blanket block — while the breaker is open', async () => {
@@ -321,7 +322,7 @@ describe('error handling', () => {
 
     expect(opened.decision).toBe('approved')
     expect(opened.reasons).toContain('circuit_open')
-    // а денежное действие в том же состоянии breaker-а — честно fail-closed
+    // and a money action in the same breaker state is honestly fail-closed
     expect((await client.evaluate(facts({ typeKey: 'transfer_intent' }))).decision).toBe('rejected')
   })
 
@@ -347,9 +348,9 @@ describe('error handling', () => {
   })
 
   it('does not read fail-mode tables through the prototype chain', async () => {
-    // typeKey по контракту — произвольная непрозрачная строка. Прямая
-    // индексация подняла бы 'toString' из Object.prototype: конфиг партнёра
-    // оказался бы проигнорирован, а в reasons уехала бы функция.
+    // By contract typeKey is an arbitrary opaque string. Direct indexing would
+    // resolve 'toString' from Object.prototype: the integrator's config would
+    // be ignored and a function would end up in reasons.
     const runtime: Runtime = {
       fetch: (async () => {
         throw new Error('down')
@@ -366,20 +367,20 @@ describe('error handling', () => {
 
     const verdict = await client.evaluate(facts({ typeKey: 'toString' }))
 
-    expect(verdict.decision).toBe('rejected') // из failMode.default, а не из прототипа
+    expect(verdict.decision).toBe('rejected') // from failMode.default, not from the prototype
     expect(verdict.reasons).toEqual(['fallback_closed', 'unavailable'])
   })
 })
 
-describe('подмешивание identity (HAD-340)', () => {
+describe('attaching identity', () => {
   /**
-   * Источник, не давший ничего. Сам `Identity` в такое состояние не приходит —
-   * при недоступном storage он держит anonymousId в памяти, — но подмешивание
-   * обязано переживать чужой источник: партнёр волен подставить свой.
+   * A source that gave nothing. `Identity` itself never gets into this state —
+   * with storage unavailable it keeps the anonymousId in memory — but attaching
+   * has to survive someone else's source: an integrator may plug in their own.
    */
   const noIdentity: IdentitySource = { meta: () => ({}) }
 
-  /** Источник, который бросает: гейт на денежном пути не имеет права упасть. */
+  /** A source that throws: a gate on the money path is not allowed to fail. */
   const throwingIdentity: IdentitySource = {
     meta: () => {
       throw new Error('identity unavailable')
@@ -390,7 +391,7 @@ describe('подмешивание identity (HAD-340)', () => {
     return JSON.parse(calls[n]?.init.body ?? '{}').meta
   }
 
-  it('кладёт оба ключа, когда пользователь известен', async () => {
+  it('puts both keys in when the user is known', async () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity('u_42'))
 
@@ -400,9 +401,9 @@ describe('подмешивание identity (HAD-340)', () => {
     expect(metaOf(calls).anonymousId).toEqual(expect.any(String))
   })
 
-  it('без идентичности конверт уходит как есть — без исключения и без ретрая', async () => {
-    // Гейт стоит на денежном пути: недоступный storage не имеет права ни
-    // уронить вызов, ни превратить его в блокировку.
+  it('sends the envelope as-is with no identity — no exception and no retry', async () => {
+    // The gate sits on the money path: unavailable storage is allowed neither
+    // to bring the call down nor to turn it into a block.
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', noIdentity)
@@ -416,7 +417,7 @@ describe('подмешивание identity (HAD-340)', () => {
     debug.mockRestore()
   })
 
-  it('о безличном конверте сообщает один раз за сессию, и только debug', async () => {
+  it('reports an identity-less envelope once per session, at debug level only', async () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
     const { runtime } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', noIdentity)
@@ -429,7 +430,7 @@ describe('подмешивание identity (HAD-340)', () => {
     debug.mockRestore()
   })
 
-  it('бросающий источник идентичности не роняет гейт', async () => {
+  it('an identity source that throws does not bring the gate down', async () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', throwingIdentity)
@@ -441,10 +442,10 @@ describe('подмешивание identity (HAD-340)', () => {
     debug.mockRestore()
   })
 
-  it('anonymousId стабилен между вызовами при storage, который не сохраняет', async () => {
-    // Заглушка «ничего не персистить» не бросает — она молча теряет запись.
-    // Поверь мы ей, каждый вызов генерировал бы новый id, и горячий путь
-    // разошёлся бы с холодным ровно там, где сервер их склеивает.
+  it('keeps anonymousId stable across calls with storage that does not persist', async () => {
+    // The "persist nothing" stub does not throw — it silently drops the write.
+    // Taken at its word, every call would generate a new id and the hot path
+    // would diverge from the cold one exactly where the server joins them.
     const store = { get: () => null, set: () => {} }
     const identity = new Identity({
       fetch: (() => {}) as unknown as typeof fetch,
@@ -461,11 +462,11 @@ describe('подмешивание identity (HAD-340)', () => {
   })
 })
 
-describe('идентичность вызывающего вместо нашей', () => {
-  it('не трогает источник, когда оба ключа переданы явно', async () => {
-    // Чтение anonymousId его ПОРОЖДАЕТ и сохраняет. Партнёру, который гейтит
-    // со своей идентичностью и без аналитики, мы бы завели в хранилище
-    // постоянный идентификатор, которого он не просил.
+describe("the caller's identity instead of ours", () => {
+  it('does not touch the source when both keys are passed explicitly', async () => {
+    // Reading anonymousId CREATES and persists one. For an integrator who gates
+    // with their own identity and no analytics, we would be putting a permanent
+    // identifier in storage that they never asked for.
     const meta = vi.fn(() => ({ userId: 'u_sdk', anonymousId: 'a_sdk' }))
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', { meta })
@@ -480,7 +481,7 @@ describe('идентичность вызывающего вместо наше�
     expect(sent.anonymousId).toBe('a_partner')
   })
 
-  it('дополняет только недостающий ключ', async () => {
+  it('fills in only the missing key', async () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity('u_sdk'))
 

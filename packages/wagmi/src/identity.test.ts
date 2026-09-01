@@ -6,10 +6,10 @@ import { haiaConnector } from './connector'
 import { haiaTransport } from './transport'
 
 /**
- * Идентичность подмешивается в ядре, поэтому все уровни врезки обязаны
- * получать её даром. Проверяем это на настоящем `HaiaClient`, а не на моке
- * `guard`: мок пропустил бы ровно ту регрессию, ради которой тест написан —
- * забытую врезку на одном из трёх путей.
+ * Identity is attached in the kernel, so every integration level must get it
+ * for free. This is checked against a real `HaiaClient` rather than a mocked
+ * `guard`: a mock would let through exactly the regression the test exists for
+ * — a forgotten hook-up on one of the three paths.
  */
 
 const TX = [{ from: '0xf', to: '0xr', value: '0x2386f26fc10000' }]
@@ -55,7 +55,7 @@ function expectIdentity(meta: Record<string, unknown>): void {
   expect(meta.anonymousId).toEqual(expect.any(String))
 }
 
-describe('identity доезжает до конверта на всех трёх уровнях врезки', () => {
+describe('identity reaches the envelope at all three integration levels', () => {
   it('transport-level (haiaTransport)', async () => {
     const { client, metaOf } = harness()
     const instance = haiaTransport(
@@ -88,7 +88,7 @@ describe('identity доезжает до конверта на всех трёх
     expectIdentity(metaOf())
   })
 
-  it('ручной guard(facts)', async () => {
+  it('a manual guard(facts)', async () => {
     const { client, metaOf } = harness()
 
     await client.guard({
@@ -100,9 +100,9 @@ describe('identity доезжает до конверта на всех трёх
     expectIdentity(metaOf())
   })
 
-  it('anonymousId один и тот же на всех путях одного клиента', async () => {
-    // Разойдись он между уровнями — сервер не склеил бы воронку «намерение →
-    // вердикт → исполнение», не выдав при этом ни одной ошибки.
+  it('anonymousId is the same on every path of one client', async () => {
+    // Were it to differ between levels, the server would fail to join the
+    // intent → verdict → execution funnel without raising a single error.
     const { client, metaOf } = harness()
     const instance = haiaTransport(
       fakeTransport(vi.fn(async () => '0xhash')),

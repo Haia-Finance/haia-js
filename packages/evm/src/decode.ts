@@ -1,7 +1,7 @@
 /**
- * Разбор calldata и EIP-712 typed-data для распознавания approval-намерений.
- * unlimited-approval — главный фишинг-вектор, поэтому декодер живёт в ядре, а не
- * в каждом адаптере.
+ * Decoding calldata and EIP-712 typed data to recognise approval intents.
+ * An unlimited approval is the primary phishing vector, so the decoder lives in
+ * one place rather than in every adapter.
  */
 
 const SELECTORS = {
@@ -11,9 +11,9 @@ const SELECTORS = {
 } as const
 
 /**
- * Порог «безлимитности». Реальные суммы аппрувов (даже при огромном supply ×
- * 1e18) не дотягивают до 2^128, тогда как sentinel-значения max-аппрувов
- * (uint256 у ERC-2612, uint160 у Permit2) его заведомо превышают.
+ * The "unlimited" threshold. Real approval amounts (even for a huge supply ×
+ * 1e18) stay below 2^128, whereas the sentinel values of max approvals (uint256
+ * for ERC-2612, uint160 for Permit2) are certain to exceed it.
  */
 const UNLIMITED_THRESHOLD = 2n ** 128n
 
@@ -45,8 +45,8 @@ function toBigIntOrNull(v: unknown): bigint | null {
 }
 
 /**
- * Декодирует approve / increaseAllowance / setApprovalForAll из calldata.
- * Слайсит только селектор (10 символов), не весь calldata.
+ * Decodes approve / increaseAllowance / setApprovalForAll from calldata.
+ * Slices only the selector (10 characters), not the whole calldata.
  */
 export function decodeApproval(data?: string): DecodedApproval | null {
   if (!data) return null
@@ -65,7 +65,7 @@ export function decodeApproval(data?: string): DecodedApproval | null {
 
   if (selector === SELECTORS.setApprovalForAll) {
     if (body.length < 128) return null
-    // approved === true ⇒ аппрув на всю коллекцию (ERC-721/1155).
+    // approved === true ⇒ an approval for the whole collection (ERC-721/1155).
     return {
       method: 'setApprovalForAll',
       spender: addressFromWord(word(body, 0)),
@@ -82,8 +82,8 @@ interface TypedDataShape {
 }
 
 /**
- * Декодирует EIP-712 typed-data на предмет gasless-аппрува: EIP-2612 `Permit`
- * и Permit2 `PermitSingle`/`PermitBatch`.
+ * Decodes EIP-712 typed data looking for a gasless approval: EIP-2612 `Permit`
+ * and Permit2 `PermitSingle` / `PermitBatch`.
  */
 export function decodePermit(typedData: unknown): DecodedApproval | null {
   if (!typedData || typeof typedData !== 'object') return null
@@ -101,7 +101,7 @@ export function decodePermit(typedData: unknown): DecodedApproval | null {
 
   if (primaryType === 'PermitSingle' || primaryType === 'PermitBatch') {
     const details = message.details
-    // PermitBatch: проверяем ВСЕ элементы — безлимит может прятаться не в details[0].
+    // PermitBatch: check EVERY element — an unlimited one can hide outside details[0].
     const list = Array.isArray(details) ? details : [details]
     const isUnlimited = list.some((entry) => {
       const amount = toBigIntOrNull((entry as { amount?: unknown } | undefined)?.amount)

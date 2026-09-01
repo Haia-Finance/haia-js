@@ -28,7 +28,7 @@ function runtimeReturning(verdict: Partial<Verdict>): Runtime {
 
 const base: HaiaConfig = { projectId: 'proj_1', publishableKey: 'pk_1' }
 
-describe('pure constructor (§6.7)', () => {
+describe('pure constructor', () => {
   it('performs no I/O and touches no storage at construction time', () => {
     const fetchSpy = vi.fn()
     const get = vi.fn(() => null)
@@ -46,7 +46,7 @@ describe('pure constructor (§6.7)', () => {
 
   it('constructs without throwing when no global fetch exists (SSR-safe)', () => {
     const original = globalThis.fetch
-    // @ts-expect-error — намеренно снимаем глобальный fetch
+    // @ts-expect-error — deliberately removing the global fetch
     globalThis.fetch = undefined
     try {
       expect(() => createHaiaClient(base)).not.toThrow()
@@ -56,7 +56,7 @@ describe('pure constructor (§6.7)', () => {
   })
 })
 
-describe('guard outcome contract (§6.5)', () => {
+describe('guard outcome contract', () => {
   it('throws HaiaPolicyError and calls onBlocked when rejected', async () => {
     const onBlocked = vi.fn()
     const client = createHaiaClient({
@@ -122,8 +122,8 @@ describe('endpoints', () => {
     let url = ''
     const client = createHaiaClient({
       ...base,
-      // Типичный источник: `endpoints: { policy: process.env.HAIA_POLICY_URL }`
-      // с незаданной переменной.
+      // A typical source: `endpoints: { policy: process.env.HAIA_POLICY_URL }`
+      // with the variable unset.
       endpoints: { policy: undefined },
       runtime: {
         fetch: (async (u: string) => {
@@ -161,8 +161,8 @@ describe('endpoints', () => {
   })
 })
 
-describe('identity в конверте (HAD-340)', () => {
-  /** Клиент на памяти, ловит тела и policy-, и ingest-запросов. */
+describe('identity in the envelope', () => {
+  /** An in-memory client that captures the bodies of both policy and ingest requests. */
   function harness() {
     const store = new Map<string, string>()
     const sent: { url: string; body: Record<string, unknown> }[] = []
@@ -192,7 +192,7 @@ describe('identity в конверте (HAD-340)', () => {
     return { client, policyMeta, batchItems }
   }
 
-  it('подмешивает userId и anonymousId в ручной guard()', async () => {
+  it('attaches userId and anonymousId to a manual guard()', async () => {
     const { client, policyMeta } = harness()
     client.identify('u_42')
 
@@ -202,10 +202,10 @@ describe('identity в конверте (HAD-340)', () => {
     expect(policyMeta().anonymousId).toEqual(expect.any(String))
   })
 
-  it('anonymousId конверта побайтово равен anonymous_id событий аналитики', async () => {
-    // Главная ловушка задачи: сервер стыкует «намерение → вердикт →
-    // исполнение» именно по этому идентификатору. Разойдись они — ни один
-    // запрос не упадёт, просто воронка перестанет склеиваться.
+  it('the envelope anonymousId is byte-for-byte the analytics anonymous_id', async () => {
+    // The trap here: the server stitches intent → verdict → execution
+    // together on this identifier. Were the two to diverge, no request would
+    // fail — the funnel would simply stop joining up.
     const { client, policyMeta, batchItems } = harness()
 
     await client.guard(facts())
@@ -218,7 +218,7 @@ describe('identity в конверте (HAD-340)', () => {
     expect(cold).toBe(hot)
   })
 
-  it('не перетирает явное значение партнёра', async () => {
+  it('does not overwrite an explicit value from the caller', async () => {
     const { client, policyMeta } = harness()
     client.identify('u_from_sdk')
 
@@ -227,19 +227,19 @@ describe('identity в конверте (HAD-340)', () => {
     expect(policyMeta().userId).toBe('u_from_partner')
   })
 
-  it('не мутирует переданные facts', async () => {
+  it('does not mutate the facts it was given', async () => {
     const { client } = harness()
     client.identify('u_42')
     const intent = facts()
 
     await client.guard(intent)
 
-    // Партнёр получает свои facts обратно такими, какими передал, — в том
-    // числе внутри HaiaPolicyError.
+    // The caller gets their own facts back exactly as they passed them,
+    // including inside HaiaPolicyError.
     expect(intent.meta).toEqual({ chain: 'eip155:1' })
   })
 
-  it('до логина уходит один ключ, без ошибки', async () => {
+  it('sends a single key before login, with no error', async () => {
     const { client, policyMeta } = harness()
 
     await client.guard(facts())
@@ -249,11 +249,12 @@ describe('identity в конверте (HAD-340)', () => {
   })
 })
 
-describe('заблокированный localStorage (§6.7)', () => {
-  it('createHaiaClient не падает, когда обращение к localStorage бросает', () => {
-    // Chrome/Firefox с заблокированными сторонними куками и песочный iframe
-    // кидают SecurityError на самом ЧТЕНИИ свойства — это не «его нет».
-    // Голое обращение уронило бы конструктор, обещанный чистым.
+describe('blocked localStorage', () => {
+  it('createHaiaClient does not fail when touching localStorage throws', () => {
+    // Chrome and Firefox with third-party cookies blocked, and a sandboxed
+    // iframe, raise SecurityError on READING the property — which is not the
+    // same as it being absent. A bare access would bring down a constructor
+    // documented as pure.
     const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,

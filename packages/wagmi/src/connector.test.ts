@@ -32,7 +32,7 @@ describe('haiaConnector', () => {
     await provider.request({ method: 'eth_sendTransaction', params: [{ to: '0xr', value: '0x1' }] })
 
     expect(guard.mock.calls.length).toBe(1)
-    // Proxy сохраняет событийные методы провайдера.
+    // The Proxy preserves the provider event methods.
     expect(typeof provider.on).toBe('function')
   })
 
@@ -80,9 +80,10 @@ describe('haiaConnector', () => {
   })
 
   it('refuses a connector that implements getClient', () => {
-    // getConnectorClient в @wagmi/core отдаёт connector.getClient() и не
-    // вызывает getProvider вовсе — подменять было бы нечего, и отправка ушла бы
-    // в кошелёк без единого /evaluate. Отказ на этапе сборки конфига.
+    // getConnectorClient in @wagmi/core returns connector.getClient() and never
+    // calls getProvider — there would be nothing to replace, and the send would
+    // reach the wallet without a single /evaluate. Refuse while building the
+    // config.
     const client = { guard: vi.fn(), track: vi.fn() } as unknown as HaiaClient
     const connectorFn = (() => ({
       id: 'smart-account',

@@ -1,6 +1,6 @@
 /**
- * Runtime-абстракция: ядро не зашивает браузерные API, чтобы Mobile SDK (P2, RN)
- * мог переиспользовать его без форка.
+ * The runtime abstraction: the kernel does not hardcode browser APIs, so a
+ * mobile SDK (React Native) can reuse it without a fork.
  */
 
 export interface KeyValueStorage {
@@ -25,12 +25,12 @@ function memoryStorage(): KeyValueStorage {
 }
 
 /**
- * Само обращение к `globalThis.localStorage` может БРОСИТЬ — это не то же
- * самое, что «его нет». В Chrome и Firefox при заблокированных сторонних куках
- * (и в песочном iframe без `allow-same-origin`) чтение свойства кидает
- * `SecurityError`. Голое обращение здесь роняло бы `createHaiaClient()` —
- * конструктор, который обещан чистым и SSR-безопасным, — и никакой try/catch
- * внутри `Identity` до этого уже не доходил бы.
+ * Touching `globalThis.localStorage` at all can THROW — which is not the same
+ * as it being absent. In Chrome and Firefox with third-party cookies blocked
+ * (and inside a sandboxed iframe without `allow-same-origin`) reading the
+ * property raises `SecurityError`. A bare access here would bring down
+ * `createHaiaClient()` — a constructor documented as pure and SSR-safe — and no
+ * try/catch inside `Identity` would ever be reached.
  */
 function safeLocalStorage(): Storage | undefined {
   try {
@@ -44,16 +44,17 @@ export function defaultRuntime(): Runtime {
   const ls = safeLocalStorage()
   const gf = globalThis.fetch as typeof fetch | undefined
   return {
-    // Не падаем в конструкторе, если глобального fetch нет (RN / старый Node):
-    // ошибка откладывается до вызова, а инъекция cfg.runtime.fetch её перекрывает.
+    // Do not fail in the constructor when there is no global fetch (React
+    // Native / older Node): the error is deferred to the call, and injecting
+    // cfg.runtime.fetch pre-empts it.
     fetch: gf
       ? gf.bind(globalThis)
       : ((() => {
           throw new Error('haia: no global fetch; pass runtime.fetch in HaiaConfig')
         }) as typeof fetch),
-    // Методы не оборачиваем: `Identity` уже переживает их отказ и держит id
-    // в памяти сессии. Заворачивать здесь значило бы проглатывать ошибку у
-    // партнёра, который взял `runtime.storage` для своих нужд.
+    // The methods are not wrapped: `Identity` already survives their failure
+    // and keeps the id in session memory. Wrapping here would swallow the error
+    // for an integrator who took `runtime.storage` for their own use.
     storage: ls ? { get: (k) => ls.getItem(k), set: (k, v) => ls.setItem(k, v) } : memoryStorage(),
     now: () => Date.now(),
   }

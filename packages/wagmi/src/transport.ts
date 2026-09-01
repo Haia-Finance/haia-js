@@ -3,13 +3,14 @@ import { type Eip1193Provider, wrapEip1193Provider } from '@haia/evm'
 import type { EIP1193RequestFn, Transport } from 'viem'
 
 export interface HaiaTransportOptions {
-  /** Chain id, если у клиента не задан `chain`. */
+  /** Chain id, for when the client has no `chain` set. */
   chainId?: number
 }
 
 /**
- * Декоратор viem `Transport`: гейтит транзакции/подписи через policy, не меняя
- * остальную композицию транспортов. Использует только типы viem (required peer).
+ * A viem `Transport` decorator: gates transactions and signatures through
+ * policy without changing the rest of the transport composition. It uses only
+ * viem types (a required peer).
  *
  *   createWalletClient({ chain, transport: haiaTransport(custom(provider), client) })
  */
