@@ -16,7 +16,7 @@ The snapshot is **data only**: `index.json`, `envelopes/` and `verdicts/`.
 Those are the artifact the two implementations have to agree on, and they are
 expected to match their source byte for byte.
 
-Prose is not vendored. `../README.md` describes what the contract says and is
+Prose is not vendored. `./README.md` describes what the contract says and is
 written and owned here — so an update to the snapshot never overwrites it, and
 it never carries links or paths that only resolve inside another repository.
 

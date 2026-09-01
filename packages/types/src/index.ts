@@ -22,7 +22,7 @@ declare const clientEventIdBrand: unique symbol
  * intent, decision and execution.
  *
  * The type is branded deliberately: a bare string must not reach the envelope
- * around `newClientEventId()` (generation) or `asClientEventId()` (bounds
+ * bypassing `newClientEventId()` (generation) or `asClientEventId()` (bounds
  * check). Otherwise ids of arbitrary shape leak into the journal and
  * idempotency rests on the caller's good intentions.
  *

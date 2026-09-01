@@ -88,7 +88,11 @@ describe('the manifest covers every file (no undeclared fixtures)', () => {
   // the directory it lives in, and prose written elsewhere carries links that
   // do not resolve here.
   it('holds the manifest and the two fixture directories, nothing else', () => {
-    expect(readdirSync(CONTRACT_DIR).sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
+    // Dotfiles are ignored: .DS_Store is a fact about opening the directory in
+    // Finder, not about what was vendored, and failing on it would train
+    // people to ignore this test.
+    const entries = readdirSync(CONTRACT_DIR).filter((name) => !name.startsWith('.'))
+    expect(entries.sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
   })
 
   it('every *.json in envelopes/ and verdicts/ is named in index.json', () => {

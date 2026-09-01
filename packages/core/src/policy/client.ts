@@ -106,8 +106,8 @@ export class PolicyClient {
           'content-type': 'application/json',
           // Idempotency: the id belongs to the caller and is NOT regenerated
           // here. The server deduplicates a retry of the same intent by this
-          // key; the verdict itself is decided again, because the contract
-          // declares `decisionId` stability best-effort and does not promise
+          // key; the verdict itself is decided again, which is why the contract
+          // declares `decisionId` stability best-effort rather than promising
           // it. The stable key is `clientEventId`.
           'idempotency-key': facts.clientEventId,
           authorization: `Bearer ${this.cfg.publishableKey}`,

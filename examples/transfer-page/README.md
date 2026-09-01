@@ -114,8 +114,8 @@ It shows things the UI does not:
 
 ### Fail-closed
 
-Stop the control plane and press Send. The transaction is **blocked** and the wallet
-window never opens:
+Point `VITE_HAIA_BASE_URL` at an unreachable host — or go offline — and press Send.
+The transaction is **blocked** and the wallet window never opens:
 
 ```
 reasons=[fallback_closed, unavailable]  decisionId=fallback:01KZWDXC…

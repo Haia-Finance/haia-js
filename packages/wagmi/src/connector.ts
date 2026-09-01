@@ -22,8 +22,9 @@ interface EventfulProvider extends Eip1193Provider {
  * ⚠️ ONLY the connector passed in is wrapped — this function cannot wrap what
  * the caller never created. And wagmi creates connectors itself: with
  * `multiInjectedProviderDiscovery` (default `true`) it adds one connector per
- * wallet announced over EIP-6963 and appends them to `config.connectors` around
- * any wrapper — including later, through its subscription to new announcements.
+ * wallet announced over EIP-6963 and appends them to `config.connectors`
+ * bypassing any wrapper — including later, through its subscription to new
+ * announcements.
  * A send through such a connector reaches the wallet ungated.
  *
  * One unwrapped entry makes the gate optional: the user need only pick the
