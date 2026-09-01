@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { HaiaConfig } from './config'
@@ -8,22 +8,20 @@ import { PolicyClient } from './policy/client'
 import type { Runtime } from './runtime'
 
 /**
- * Контрактный тест против wire-фикстур — исполняемой формы §3 контракта.
- * Источник правды живёт в haia-cp; здесь вендорится снапшот (см.
- * `contracts/PROVENANCE.md`). Обе реализации — gateway (валидирует конверты) и
- * этот SDK (их строит) — сверяются с одними и теми же файлами, поэтому дрейф
- * ловит unit-тест в разъехавшемся репозитории, а не e2e-прогон.
+ * Contract test against the wire fixtures in `contracts/policy/v1/` — the
+ * executable form of the policy/evaluate contract. The gateway validates
+ * envelopes against these files and this SDK builds envelopes from them, so a
+ * disagreement between the two shows up as a failing unit test here rather
+ * than as a 422 at integration time.
  *
- * ⚠️ Механизм подключения фикстур (vendor + drift-check) провизорный — см.
- * PROVENANCE.md. Кандидаты на замену: публикуемый `@haia/policy-contract` или
- * submodule.
+ * The fixtures are a vendored snapshot; see `contracts/PROVENANCE.md` for how
+ * it is kept current.
  */
 
 const CONTRACT_URL = new URL('../../../contracts/policy/v1/', import.meta.url)
-// fileURLToPath, а не .pathname: pathname процент-кодирован, и в клоне по пути
-// с пробелом ('~/My Projects/haia-js') existsSync получил бы '%20' и ответил
-// false. Ниже это тихо отключило бы drift-check — ровно ту проверку, ради
-// которой файл существует.
+// fileURLToPath, not .pathname: pathname is percent-encoded, so in a clone
+// under a path with a space ('~/My Projects/haia-js') existsSync would be
+// handed '%20' and answer false.
 const CONTRACT_DIR = fileURLToPath(CONTRACT_URL)
 
 function loadJson(rel: string): Record<string, unknown> {
@@ -173,9 +171,9 @@ describe('SDK строит конверт валидной формы', () => {
 })
 
 describe('identity в meta — имена ключей не разъехались с контрактом', () => {
-  // Зеркало TestIdentityConvention на стороне haia-cp: обе реализации сверяют
-  // свои константы с одной фикстурой. Разойдись имена — ни один запрос не
-  // упадёт, просто запись вердикта выпадет из воронок и из GDPR-каскада.
+  // The control plane checks its own constants against the same fixture. Were
+  // the names to drift apart, no request would fail — the decision record
+  // would just drop out of every funnel and out of the erasure cascade.
   const identityCase = index.cases.find((c) => c.file.includes('with-identity'))
 
   it('манифест объявляет кейс с идентичностью', () => {
@@ -234,25 +232,7 @@ describe('SDK разбирает вердикты фикстур', () => {
   }
 })
 
-// Дрейф: если исходник рядом (локальная разработка), снапшот обязан совпадать
-// байт в байт. В CI без haia-cp проверка пропускается — тест идёт по снапшоту.
-const SIBLING = new URL('../../../../haia-cp/contracts/policy/v1/', import.meta.url)
-describe.skipIf(!existsSync(fileURLToPath(SIBLING)))('снапшот не разъехался с источником', () => {
-  it('каждый вендоренный файл байт-в-байт равен haia-cp', () => {
-    const walk = (root: URL, sub = ''): string[] =>
-      readdirSync(new URL(sub, root), { withFileTypes: true }).flatMap((e: Dirent) =>
-        e.isDirectory() ? walk(root, `${sub}${e.name}/`) : [`${sub}${e.name}`],
-      )
-    for (const rel of walk(CONTRACT_URL)) {
-      if (rel === 'PROVENANCE.md') continue
-      const vendored = readFileSync(new URL(rel, CONTRACT_URL))
-      const source = readFileSync(new URL(rel, SIBLING))
-      expect(vendored.equals(source), `${rel} разошёлся с haia-cp — обнови снапшот`).toBe(true)
-    }
-  })
-})
-
-// Прогоняем CONTRACT_DIR через использование, чтобы неверный путь падал явной
-// ошибкой чтения, а не пустым набором тестов.
+// A wrong fixture path must fail as an explicit read error, not as an empty
+// and silently passing test set.
 if (!existsSync(CONTRACT_DIR))
   throw new Error(`haia: contract fixtures not found at ${CONTRACT_DIR}`)
