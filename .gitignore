@@ -7,5 +7,5 @@ coverage/
 *.tsbuildinfo
 .env
 .env.*
-# Шаблон без секретов — он и есть документация того, что нужно задать.
+# A template with no secrets in it — it is the documentation of what to set.
 !.env.example
