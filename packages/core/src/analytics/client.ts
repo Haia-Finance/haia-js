@@ -4,12 +4,12 @@ import type { Identity } from '../identity/identity'
 import type { Runtime } from '../runtime'
 import { toBase64, unref } from '../util'
 
-/** Событие в очереди вместе с идентичностью на момент его возникновения. */
+/** A queued event together with the identity as of the moment it happened. */
 interface QueuedEvent {
   event: AnalyticsEvent
   anonymousId: string
   userId?: string
-  /** Момент СОБЫТИЯ, не флаша. */
+  /** The moment of the EVENT, not of the flush. */
   timestamp: string
 }
 
@@ -18,13 +18,13 @@ const MAX_RETRIES = 2
 const RETRY_BASE_MS = 500
 
 /**
- * Холодный путь: батчинг + fire-and-forget. Ошибки сети НИКОГДА не всплывают в
- * приложение и не блокируют UI.
+ * The cold path: batching plus fire-and-forget. Network errors NEVER surface in
+ * the application and never block the UI.
  */
 export class AnalyticsClient {
   private queue: QueuedEvent[] = []
   private flushTimer: ReturnType<typeof setTimeout> | null = null
-  /** Дедуп по clientEventId: повторный enqueue того же намерения — no-op. */
+  /** Deduplication by clientEventId: enqueuing the same intent again is a no-op. */
   private readonly seen = new Set<string>()
 
   constructor(
@@ -45,14 +45,14 @@ export class AnalyticsClient {
       }
       this.seen.add(event.clientEventId)
     }
-    // Идентичность фиксируется в момент СОБЫТИЯ, а не флаша: иначе identify()
-    // внутри того же батча задним числом переприписал бы userId на события,
-    // случившиеся до логина.
+    // Identity is captured at the moment of the EVENT, not of the flush:
+    // otherwise an identify() inside the same batch would retroactively stamp
+    // its userId onto events that happened before the login.
     //
-    // Время — по той же причине и в том же месте. Без него Segment-совместимый
-    // приёмник датирует событие временем ПРИЁМА, а между событием и приёмом
-    // лежат интервал флаша (5 с) и ретраи с бэкоффом: порядок событий на
-    // холодном пути переставился бы относительно других батчей.
+    // The timestamp is here for the same reason. Without it a Segment-compatible
+    // receiver dates the event at the moment of RECEIPT, and between the event
+    // and receipt lie the flush interval (5 s) and retries with backoff — which
+    // would reorder cold-path events relative to other batches.
     this.queue.push({
       event,
       anonymousId: this.identity.anonymousId(),
@@ -81,8 +81,8 @@ export class AnalyticsClient {
     }
     if (this.queue.length === 0) return
     const events = this.queue.splice(0, this.queue.length)
-    // Идентичность — на КАЖДОМ элементе батча (Segment-совместимо): элементы
-    // независимы, конверт несёт только projectId.
+    // Identity goes on EVERY element of the batch (Segment-compatible): the
+    // elements are independent and the envelope carries only the projectId.
     const batch = events.map(
       ({ event: { clientEventId, ...event }, anonymousId, userId, timestamp }) => ({
         ...event,
@@ -99,23 +99,24 @@ export class AnalyticsClient {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            // Basic с пустым паролем — Segment-совместимая схема для write-key.
+            // Basic with an empty password — the Segment-compatible scheme for a write key.
             authorization: `Basic ${toBase64(`${this.cfg.publishableKey}:`)}`,
           },
           body,
         })
-        if (res.ok) return // доставлено — дедуп-ключи остаются, повтор не нужен
-        // 4xx (кроме 429) — конфиг/авторизация: ретрай не поможет, роняем батч.
+        if (res.ok) return // delivered — the dedup keys stay, no resend needed
+        // A 4xx (other than 429) is configuration or authorization: a retry
+        // will not help, so drop the batch.
         if (res.status >= 400 && res.status < 500 && res.status !== 429) break
       } catch {
-        // сетевой сбой — ретраим ниже
+        // network failure — retried below
       }
       if (attempt < MAX_RETRIES) await this.sleep(RETRY_BASE_MS * 2 ** attempt)
     }
-    // Батч не доставлен — роняем его: холодный путь никогда не блокирует
-    // приложение и не растит очередь без границ. Но дедуп-ключи снимаем: иначе
-    // то же событие, отправленное заново, молча отбросилось бы как дубль, и
-    // потеря стала бы окончательной.
+    // The batch was not delivered, so drop it: the cold path never blocks the
+    // application and never grows the queue without bound. The dedup keys are
+    // released, though — otherwise the same event, sent again, would be
+    // silently discarded as a duplicate and the loss would become permanent.
     this.forget(events)
   }
 

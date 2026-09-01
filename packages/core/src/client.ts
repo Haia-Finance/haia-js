@@ -7,12 +7,12 @@ import { type GuardOptions, PolicyClient } from './policy/client'
 import { defaultRuntime } from './runtime'
 
 /**
- * Фасад. Держит два независимых под-клиента: `policy` (горячий путь) и
- * `analytics` (холодный).
+ * The facade. It holds two independent sub-clients: `policy` (the hot path) and
+ * `analytics` (the cold one).
  *
- * Конструктор чистый: без сетевых вызовов и side-effects — SSR-безопасен,
- * никакого `init()`. Серверной конфигурации, которую надо было бы подтягивать
- * на старте, у клиента нет: проверка «гейтится ли действие» целиком серверная.
+ * The constructor is pure: no network calls, no side effects — SSR-safe, and no
+ * `init()`. The client has no server-side configuration to fetch at startup,
+ * because whether an action is gated is decided entirely on the server.
  */
 export class HaiaClient {
   readonly policy: PolicyClient
@@ -23,20 +23,21 @@ export class HaiaClient {
     const runtime = { ...defaultRuntime(), ...cfg.runtime }
     const endpoints = resolveEndpoints(cfg)
     this.identity = new Identity(runtime)
-    // Один и тот же экземпляр Identity уходит и в policy, и в analytics: сервер
-    // склеивает «намерение → вердикт → исполнение» по anonymousId, и две копии
-    // с разными значениями тихо развалили бы воронку, ничего не сломав.
+    // The same Identity instance goes to both policy and analytics: the server
+    // stitches intent → verdict → execution together on anonymousId, and two
+    // copies holding different values would quietly break the funnel without
+    // breaking anything else.
     this.policy = new PolicyClient(cfg, runtime, endpoints.policy, this.identity)
     this.analytics = new AnalyticsClient(cfg, runtime, endpoints.ingest, this.identity)
   }
 
   /**
-   * Горячий путь: гейт произвольного действия. Публичен — партнёр может
-   * гейтить свои нестандартные действия вручную.
+   * The hot path: gate an arbitrary action. Public, so an integrator can gate
+   * their own non-standard actions by hand.
    *
-   * `rejected` → вызывается `onBlocked` и бросается `HaiaPolicyError`.
-   * `flagged` → вызывается `onFlagged`, действие проходит (вердикт горячий,
-   * последствие холодное).
+   * `rejected` → `onBlocked` is called and `HaiaPolicyError` is thrown.
+   * `flagged` → `onFlagged` is called and the action proceeds (the verdict is
+   * hot, the consequence is cold).
    */
   async guard(facts: Facts, opts?: GuardOptions): Promise<Verdict> {
     const verdict = await this.policy.evaluate(facts, opts)
@@ -50,18 +51,18 @@ export class HaiaClient {
     return verdict
   }
 
-  /** Холодный путь: fire-and-forget аналитика. */
+  /** The cold path: fire-and-forget analytics. */
   track(event: string, properties?: Record<string, unknown>, clientEventId?: string): void {
     this.analytics.enqueue({ type: 'track', event, properties, clientEventId })
   }
 
-  /** Связывает пользователя (user_id / адрес кошелька) и шлёт identify. */
+  /** Links the user (user_id / wallet address) and sends an identify. */
   identify(userId: string, traits?: Record<string, unknown>): void {
     this.identity.setUserId(userId)
     this.analytics.enqueue({ type: 'identify', userId, traits })
   }
 
-  /** Хук партнёра не должен ломать гейт: его исключение — не наша авария. */
+  /** An integrator's hook must not break the gate: its exception is not our outage. */
   private notify(
     hook: ((verdict: Verdict, facts: Facts) => void) | undefined,
     verdict: Verdict,

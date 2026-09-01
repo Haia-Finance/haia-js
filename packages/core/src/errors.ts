@@ -1,14 +1,14 @@
 import type { Decision, Facts, Verdict } from '@haia/types'
 
 /**
- * Блокировка политикой. Отдельный класс — чтобы партнёр программно отличал
- * haia-блок от ошибок кошелька (user rejected, insufficient funds, …).
+ * A block by policy. A class of its own, so an integrator can tell a haia block
+ * apart from wallet errors (user rejected, insufficient funds, …) in code.
  */
 export class HaiaPolicyError extends Error {
-  /** Из вердикта, а не константой: иначе поле лгало бы при любом ином исходе. */
+  /** Taken from the verdict, not hardcoded: otherwise the field would lie on any other outcome. */
   readonly decision: Decision
   readonly decisionId: string
-  /** Машиночитаемые коды из документированного словаря — по ним строится UI. */
+  /** Machine-readable codes from a documented vocabulary — the UI is built from them. */
   readonly reasons: string[]
   readonly facts: Facts
 
@@ -19,8 +19,8 @@ export class HaiaPolicyError extends Error {
     this.decisionId = verdict.decisionId
     this.reasons = verdict.reasons ?? []
     this.facts = facts
-    // Прототип восстанавливаем явно: при компиляции в ES5 target extends Error
-    // ломает instanceof, а SDK собирается под несколько таргетов.
+    // Restore the prototype explicitly: compiled to an ES5 target, extending
+    // Error breaks instanceof, and the SDK is built for several targets.
     Object.setPrototypeOf(this, HaiaPolicyError.prototype)
   }
 }
@@ -28,10 +28,10 @@ export class HaiaPolicyError extends Error {
 const MAX_CAUSE_DEPTH = 10
 
 /**
- * Достаёт haia-блок из ошибки, как её увидел партнёр. Голый
- * `err instanceof HaiaPolicyError` недостаточен: стеки оборачивают ошибку
- * транспорта в свою (viem → `TransactionExecutionError`), и блок оказывается
- * в цепочке `cause`. Партнёрский код должен спрашивать через этот хелпер.
+ * Extracts a haia block from an error as the integrator sees it. A bare
+ * `err instanceof HaiaPolicyError` is not enough: stacks wrap a transport error
+ * in their own (viem → `TransactionExecutionError`), leaving the block in the
+ * `cause` chain. Integrator code should ask through this helper.
  *
  *   catch (e) { const block = asHaiaPolicyError(e); if (block) showUi(block.reasons) }
  */

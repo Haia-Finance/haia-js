@@ -8,57 +8,59 @@ with minimal code on the integrator side.
 
 ## Packages
 
-Монорепо: общее ядро + тонкие публикуемые пакеты-по-SDK.
+A monorepo: one shared kernel plus thin per-SDK packages.
 
-| Пакет | Назначение |
+| Package | Purpose |
 |---|---|
-| [`@haia/types`](./packages/types) | Wire-контракт без рантайма: `Facts`, `Verdict`, события |
-| [`@haia/core`](./packages/core) | Универсальное ядро: policy `/evaluate`, ingest, identity, runtime-инъекции. Ничего не знает про EVM и провайдеров |
-| [`@haia/evm`](./packages/evm) | Семейный слой EVM: перехват EIP-1193, декод calldata, нормализация в факты |
-| [`@haia/wagmi`](./packages/wagmi) | Тонкий адаптер для viem / wagmi поверх `@haia/evm` |
-| `tooling/*` | Общие конфиги (`@haia/tsconfig`, `@haia/biome-config`) |
+| [`@haia/types`](./packages/types) | The wire contract with no runtime: `Facts`, `Verdict`, events |
+| [`@haia/core`](./packages/core) | The universal kernel: policy `/evaluate`, ingest, identity, runtime injection. Knows nothing about EVM or wallet providers |
+| [`@haia/evm`](./packages/evm) | The EVM family layer: EIP-1193 interception, calldata decoding, normalization into facts |
+| [`@haia/wagmi`](./packages/wagmi) | A thin adapter for viem / wagmi on top of `@haia/evm` |
+| `tooling/*` | Shared configs (`@haia/tsconfig`, `@haia/biome-config`) |
 
-## Identity в конверте
+## Identity in the envelope
 
-Каждый `guard()` уходит с идентичностью в `meta` — SDK подмешивает её сам, на
-всех уровнях врезки (transport, коннектор, ручной `guard`). `anonymousId` есть
-всегда; `userId` появляется после `identify()` и до логина не отправляется.
+Every `guard()` leaves with identity in `meta` — the SDK attaches it itself, at
+every integration level (transport, connector, manual `guard`). `anonymousId` is
+always present; `userId` appears after `identify()` and is not sent before login.
 
 ```ts
 const haia = createHaiaClient({ projectId, publishableKey })
-haia.identify(address)   // адрес кошелька как identity — этого достаточно
+haia.identify(address)   // the wallet address as identity is enough
 ```
 
-Зачем. Control plane пишет на каждый вердикт событие и поднимает эти два ключа
-в собственные колонки. Без них строка принимается ровно так же и действие
-гейтится как обычно — но её не видит ни одна воронка (все фильтруют по
-`COALESCE(user_id, anonymous_id) IS NOT NULL`) и до неё никогда не доберётся
-запрос на стирание: каскад ищет по пользователю и связанным с ним анонимным id.
-Цена отсутствия — не отказ, а тихо неполные цифры и неудаляемая запись. Именно
-поэтому ключи подмешивает SDK, а не помнит каждый интегратор.
+Why. The control plane writes an event for every verdict and lifts these two keys
+into columns of their own. Without them the row is accepted exactly the same way
+and the action is gated as usual — but no funnel sees it (they all filter on
+`COALESCE(user_id, anonymous_id) IS NOT NULL`) and no erasure request ever reaches
+it, because the cascade looks up by user and the anonymous ids linked to them. The
+cost of omitting them is not a failure but silently incomplete numbers and a record
+that cannot be deleted. That is why the SDK attaches the keys instead of every
+integrator having to remember to.
 
-Правила:
+The rules:
 
-- **Явное значение партнёра выигрывает.** `meta.userId`, переданный вызывающим,
-  доходит до сервера неизменным; подмешивание заполняет пустое.
-- **`anonymousId` тот же, что у аналитики.** Горячий и холодный путь берут его
-  из одного экземпляра `Identity` — сервер стыкует «намерение → вердикт →
-  исполнение» именно по нему.
-- **Отсутствие идентичности — не ошибка.** Конверт уходит как есть, без
-  исключения и без блокировки; один `console.debug` за сессию.
-- **Обязательными на wire ключи не становятся.** Контракт фиксирует два
-  обязательных поля, и fail-closed из-за формы конверта на денежном пути
-  недопустим.
+- **An explicit value from the caller wins.** A `meta.userId` you pass reaches the
+  server unchanged; attaching fills in what is empty.
+- **`anonymousId` is the same one analytics uses.** The hot and cold paths take it
+  from a single `Identity` instance — this is the identifier the server uses to
+  stitch intent → verdict → execution together.
+- **Missing identity is not an error.** The envelope goes out as it is, with no
+  exception and no block; one `console.debug` per session.
+- **The keys do not become required on the wire.** The contract fixes exactly two
+  required fields, and failing closed over envelope shape on the money path is
+  not acceptable.
 
-`clientEventId` остаётся стабильным ключом корреляции. `decisionId` — нет:
-ретрай переоценивает намерение заново, и контракт объявляет его стабильность
+`clientEventId` stays the stable correlation key. `decisionId` does not: a retry
+re-evaluates the intent from scratch, and the contract declares its stability
 best-effort.
 
 ## Examples
 
-[`examples/transfer-page`](./examples/transfer-page) — страница перевода на wagmi:
-подключить кошелёк, выбрать сеть, адрес, сумма, Send. Гейт добавляется одной
-обёрткой вокруг коннектора и не появляется ни в форме, ни в обработчике отправки.
+[`examples/transfer-page`](./examples/transfer-page) — a transfer page built on
+wagmi: connect a wallet, pick a network, address, amount, Send. The gate is added
+by one wrapper around the connector and appears neither in the form nor in the
+submit handler.
 
 ```bash
 cd examples/transfer-page
@@ -66,18 +68,18 @@ cp .env.example .env.local   # projectId + publishableKey
 pnpm dev
 ```
 
-Примеры приватные и не публикуются, но живут в воркспейсе — то есть потребляют
-пакеты через тот же публичный вход, что и внешний проект.
+Examples are not published to npm, but they live in the workspace — so they consume
+the packages through the same public entry point an external project does.
 
 ## Tooling
 
 pnpm (workspaces + catalog) · Turborepo · Biome · tsup · Changesets · Vitest.
 
 ```bash
-pnpm install        # установка (требует corepack / pnpm 11+)
-pnpm build          # сборка всех пакетов (turbo)
-pnpm check-types    # tsc --noEmit по пакетам
+pnpm install        # install (requires corepack / pnpm 11+)
+pnpm build          # build every package (turbo)
+pnpm check-types    # tsc --noEmit across packages
 pnpm test           # vitest
 pnpm lint           # biome check
-pnpm changeset      # завести changeset для релиза
+pnpm changeset      # add a changeset for the next release
 ```

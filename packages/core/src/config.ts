@@ -2,39 +2,41 @@ import type { Facts, FailMode, TypeKey, Verdict } from '@haia/types'
 import type { Runtime } from './runtime'
 
 export interface HaiaEndpoints {
-  /** Горячий путь. По умолчанию `{baseUrl}/v1/projects/{projectId}/policy/evaluate`. */
+  /** The hot path. Defaults to `{baseUrl}/v1/projects/{projectId}/policy/evaluate`. */
   policy: string
-  /** Холодный путь. По умолчанию `{baseUrl}/v1/batch`. */
+  /** The cold path. Defaults to `{baseUrl}/v1/batch`. */
   ingest: string
 }
 
 export interface HaiaFailModeConfig {
-  /** Фолбэк для ключей вне таблицы конвенций и без подсказки семейного слоя. */
+  /** Fallback for keys outside the conventions table and with no family-layer hint. */
   default?: FailMode
-  /** Точечное переопределение по typeKey — имеет приоритет над всем остальным. */
+  /** Per-typeKey override — takes priority over everything else. */
   byTypeKey?: Record<TypeKey, FailMode>
 }
 
 export interface HaiaConfig {
   projectId: string
   /**
-   * Единый публичный клиентский ключ со scope-набором `{ingest:write,
-   * policy:evaluate}`. Встраивается в публичный фронтенд — секретов не несёт.
+   * The single public client key, with the scopes `{ingest:write,
+   * policy:evaluate}`. It is embedded in a public frontend and carries no
+   * secret.
    */
   publishableKey: string
   endpoints?: Partial<HaiaEndpoints>
   baseUrl?: string
-  /** Бюджет латентности на `/evaluate`, мс. */
+  /** Latency budget for `/evaluate`, in ms. */
   latencyBudgetMs?: number
   failMode?: HaiaFailModeConfig
-  /** Вердикт `rejected`: показать UI с причиной. Вызывается перед throw. */
+  /** A `rejected` verdict: show UI with the reason. Called before the throw. */
   onBlocked?: (verdict: Verdict, facts: Facts) => void
   /**
-   * Вердикт `flagged`: уведомление, не гейт. Возвращаемое значение не
-   * ожидается, исключение проглатывается, и действие уходит в кошелёк сразу
-   * после вызова хука — step-up-подтверждение здесь построить нельзя, окно
-   * кошелька откроется раньше, чем пользователь ответит. Для подтверждения
-   * нужен собственный гейт до вызова: `client.guard(facts)` и свой UI.
+   * A `flagged` verdict: a notification, not a gate. No return value is
+   * expected, an exception is swallowed, and the action reaches the wallet
+   * immediately after the hook returns — a step-up confirmation cannot be
+   * built here, because the wallet window opens before the user can answer.
+   * For a confirmation you need your own gate ahead of the call:
+   * `client.guard(facts)` plus your own UI.
    */
   onFlagged?: (verdict: Verdict, facts: Facts) => void
   environment?: string
@@ -42,19 +44,19 @@ export interface HaiaConfig {
 }
 
 /**
- * Реалистичный бюджет межрегионального браузерного вызова: каждый перехваченный
- * вызов — полный сетевой RTT, локального пропуска и кэша вердиктов нет.
+ * A realistic budget for a cross-region call from a browser: every intercepted
+ * call is a full network round trip, with no local bypass and no verdict cache.
  */
 export const DEFAULT_LATENCY_BUDGET_MS = 400
 
 export const DEFAULT_API_BASE = 'https://api.haia.finance'
 
 /**
- * Дефолтный fail-mode для ключей словаря конвенций: деньги → closed, прочее →
- * open. Таблица покрывает документированные typeKey; для незнакомых ключей
- * действует `failMode.default` (иначе `open` — незнакомый ключ по определению
- * не входит в денежный класс, а fail-closed по умолчанию заблокировал бы любое
- * новое действие при первом же таймауте).
+ * The default fail-mode for the keys of the conventions dictionary: money →
+ * closed, everything else → open. The table covers the documented typeKeys;
+ * unknown keys fall to `failMode.default` (and to `open` otherwise — an unknown
+ * key is by definition not in the money class, and fail-closed by default would
+ * block every new action on the first timeout).
  */
 export const DEFAULT_FAIL_MODE_BY_TYPE_KEY: Record<string, FailMode> = {
   transfer_intent: 'closed',
@@ -69,14 +71,14 @@ export const DEFAULT_FAIL_MODE_BY_TYPE_KEY: Record<string, FailMode> = {
 export const FALLBACK_FAIL_MODE: FailMode = 'open'
 
 /**
- * Policy-путь per-project: projectId живёт в URL, а не в теле — сервер матчит
- * его со scope ключа.
+ * The policy path is per project: the projectId lives in the URL rather than in
+ * the body, because the server matches it against the key's scope.
  */
 export function resolveEndpoints(cfg: HaiaConfig): HaiaEndpoints {
   const base = (cfg.baseUrl ?? DEFAULT_API_BASE).replace(/\/+$/, '')
-  // Явный undefined в overrides отбрасываем: `endpoints: { policy: process.env.X }`
-  // с незаданной переменной иначе затёр бы рабочий URL на undefined, и запросы
-  // молча ушли бы на origin страницы.
+  // Drop explicit undefined in the overrides: with an unset variable,
+  // `endpoints: { policy: process.env.X }` would otherwise overwrite a working
+  // URL with undefined and the requests would silently go to the page origin.
   const overrides = Object.fromEntries(
     Object.entries(cfg.endpoints ?? {}).filter(([, v]) => v !== undefined),
   )

@@ -15,8 +15,8 @@ const BREAKER_COOLDOWN_MS = 10_000
 const DECISIONS = new Set<Decision>(['approved', 'rejected', 'flagged'])
 
 /**
- * Валидация вердикта: доверять `as Verdict` нельзя — гейт обязан отличать
- * «сервер разрешил» от «сервер ответил мусором».
+ * Validate the verdict: `as Verdict` cannot be trusted — the gate has to tell
+ * "the server allowed it" apart from "the server answered with nonsense".
  */
 function parseVerdict(body: unknown): Verdict | null {
   if (!body || typeof body !== 'object') return null
@@ -32,13 +32,14 @@ function parseVerdict(body: unknown): Verdict | null {
 }
 
 /**
- * Чтение таблицы только по собственным ключам.
+ * Read the table by own keys only.
  *
- * `typeKey` по контракту — произвольная непрозрачная строка, и партнёр волен
- * назвать действие `toString` или `constructor`. Прямая индексация объектного
- * литерала подняла бы такой ключ по цепочке прототипов: вместо `undefined`
- * вернулась бы функция `Object.prototype`, конфиг партнёра оказался бы
- * проигнорирован, а в `reasons` уехало бы `fallback_function toString() {…}`.
+ * By contract `typeKey` is an arbitrary opaque string, and an integrator is
+ * free to name an action `toString` or `constructor`. Indexing an object
+ * literal directly would resolve such a key up the prototype chain: instead of
+ * `undefined` it would return an `Object.prototype` function, the integrator's
+ * config would be ignored, and `fallback_function toString() {…}` would end up
+ * in `reasons`.
  */
 function own(table: Record<string, FailMode> | undefined, key: string): FailMode | undefined {
   if (!table || !Object.hasOwn(table, key)) return undefined
@@ -47,24 +48,26 @@ function own(table: Record<string, FailMode> | undefined, key: string): FailMode
 
 export interface GuardOptions {
   /**
-   * Подсказка класса действия от семейного слоя: он знает, денежный ли его
-   * typeKey, а ядро — нет. Конфиг партнёра (`failMode.byTypeKey`) её перекрывает.
+   * A hint about the class of the action from the family layer: it knows
+   * whether its typeKey is a money action and the kernel does not. The
+   * integrator's config (`failMode.byTypeKey`) overrides it.
    */
   failMode?: FailMode
 }
 
 /**
- * Клиент горячего пути. Жёсткий timeout = бюджет латентности, fail-mode по
- * классу действия, circuit breaker.
+ * The hot-path client. A hard timeout equal to the latency budget, a fail-mode
+ * chosen by the class of the action, and a circuit breaker.
  *
- * Кэша вердиктов НЕТ по построению: каждый гейт — реальный вызов, и каждое
- * намерение оседает на сервере отдельным событием. Проверка «гейтится ли
- * действие» — тоже серверная: клиент шлёт всё перехваченное, негейченное
- * получает быстрый `approved` + reason `not_gated`.
+ * There is NO verdict cache, by construction: every gate is a real call, and
+ * every intent lands on the server as its own event. Whether an action is
+ * gated at all is a server-side question too — the client sends everything it
+ * intercepts, and an ungated action gets a fast `approved` with the reason
+ * `not_gated`.
  *
- * В конверт подмешивается идентичность (`withIdentity`) — без неё запись
- * вердикта на сервере не попадает ни в одну воронку и не удаляется по запросу
- * на стирание.
+ * Identity is attached to the envelope (`withIdentity`); without it the
+ * decision record the server writes is counted by no funnel and reached by no
+ * erasure request.
  */
 export class PolicyClient {
   private failures = 0
@@ -78,10 +81,10 @@ export class PolicyClient {
     private readonly runtime: Runtime,
     private readonly endpoint: string,
     /**
-     * Обязателен, а не опционален: подмешивание идентичности — не украшение
-     * конверта, а то, без чего запись вердикта не видит ни одна воронка.
-     * Необязательный параметр означал бы клиента, который тихо шлёт безличные
-     * конверты, — ровно тот отказ, который эта зависимость и предотвращает.
+     * Required, not optional: attaching identity is not decoration of the
+     * envelope, it is what keeps the decision record visible to any funnel at
+     * all. An optional parameter would mean a client that quietly sends
+     * identity-less envelopes — exactly the failure this dependency prevents.
      */
     private readonly identity: IdentitySource,
   ) {}
@@ -101,11 +104,11 @@ export class PolicyClient {
         signal: controller.signal,
         headers: {
           'content-type': 'application/json',
-          // Идемпотентность: id принадлежит вызывающему и НЕ перегенерируется
-          // здесь. Ретрай того же намерения дедуплицируется сервером по этому
-          // ключу; сам вердикт при этом выносится заново — стабильность
-          // `decisionId` контракт (§3.3) объявляет best-effort и не обещает,
-          // стабилен именно `clientEventId`.
+          // Idempotency: the id belongs to the caller and is NOT regenerated
+          // here. The server deduplicates a retry of the same intent by this
+          // key; the verdict itself is decided again, which is why the contract
+          // declares `decisionId` stability best-effort rather than promising
+          // it. The stable key is `clientEventId`.
           'idempotency-key': facts.clientEventId,
           authorization: `Bearer ${this.cfg.publishableKey}`,
         },
@@ -116,10 +119,11 @@ export class PolicyClient {
         }),
       })
       if (!res.ok) {
-        // 4xx (кроме 429) — конфиг/авторизация, а не транзиентная авария: не
-        // копим в circuit breaker (ретраи не помогут) и сигналим явной
-        // причиной, чтобы мисконфиг publishableKey/projectId был виден, а не
-        // молча маскировался fail-mode под «недоступность».
+        // A 4xx (other than 429) is configuration or authorization, not a
+        // transient outage: it is not counted toward the circuit breaker
+        // (retries will not help) and is reported with an explicit reason, so
+        // a misconfigured publishableKey/projectId is visible instead of being
+        // quietly disguised as "unavailable" by the fail-mode.
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           this.warnClientError(res.status)
           return this.fallback(facts, `client_error:${res.status}`, opts)
@@ -127,10 +131,10 @@ export class PolicyClient {
         throw new Error(`policy responded ${res.status}`)
       }
       const verdict = parseVerdict(await res.json())
-      // Невалидное тело при 200 — сломанный сервис, а не разрешение: без
-      // проверки `decision: undefined` дошёл бы до фасада, не совпал бы с
-      // 'rejected' и молча пропустил денежное действие. Считаем это отказом и
-      // применяем fail-mode.
+      // An invalid body under a 200 is a broken service, not permission:
+      // without this check `decision: undefined` would reach the facade, fail
+      // to match 'rejected' and silently let a money action through. Treat it
+      // as a failure and apply the fail-mode.
       if (!verdict) {
         this.onFailure()
         this.warnMalformed()
@@ -147,24 +151,24 @@ export class PolicyClient {
   }
 
   /**
-   * Дополняет `meta` идентичностью — на КАЖДОМ вызове, независимо от уровня
-   * врезки (transport, action-level, ручной `guard`). Именно забывчивость
-   * интегратора и есть причина делать это в SDK, поэтому точка одна и обойти
-   * её нельзя.
+   * Fills `meta` in with identity on EVERY call, whatever the integration
+   * level (transport, action-level, manual `guard`). An integrator forgetting
+   * on one of those paths is the whole reason this lives in the SDK, so there
+   * is one place it happens and it cannot be bypassed.
    *
-   * Заполнение пустого, а не переопределение: явное значение вызывающего
-   * доходит до сервера неизменным. Исходный объект не мутируется — партнёр
-   * получает свои же `facts` обратно (в том числе внутри `HaiaPolicyError`)
-   * ровно такими, какими передал.
+   * It fills in what is empty; it does not override. An explicit value from
+   * the caller reaches the server unchanged, and the original object is not
+   * mutated — the integrator gets their own `facts` back (including inside
+   * `HaiaPolicyError`) exactly as they passed them.
    */
   private withIdentity(meta: Facts['meta'] | undefined): Record<string, unknown> {
     const out: Record<string, unknown> = { ...meta }
     const missing = IDENTITY_META_KEYS.filter((key) => out[key] == null)
-    // Вызывающий заполнил оба ключа сам — источник не трогаем вовсе. Не
-    // микрооптимизация: чтение `anonymousId` его ПОРОЖДАЕТ и сохраняет, а
-    // партнёру, который гейтит со своей идентичностью и без аналитики, мы бы
-    // тем самым завели в localStorage постоянный идентификатор, которого он не
-    // просил и на который мог не получить согласия.
+    // The caller filled both keys in themselves — do not touch the source at
+    // all. Not a micro-optimization: reading `anonymousId` CREATES and
+    // persists one, so for an integrator who gates with their own identity and
+    // no analytics we would be putting a permanent identifier in localStorage
+    // that they never asked for and may have no consent for.
     if (missing.length === 0) return out
 
     const identity = this.readIdentity()
@@ -177,9 +181,9 @@ export class PolicyClient {
   }
 
   /**
-   * Источник идентичности не имеет права уронить гейт: чужая реализация
-   * `IdentitySource` может бросить, а цена этого — неполные цифры, а не
-   * заблокированный перевод.
+   * The identity source is not allowed to bring the gate down: someone else's
+   * `IdentitySource` may throw, and the price of that is incomplete numbers,
+   * not a blocked transfer.
    */
   private readIdentity(): IdentityMeta {
     try {
@@ -190,15 +194,17 @@ export class PolicyClient {
   }
 
   /**
-   * Один раз за сессию и только debug. Безличный конверт — не ошибка: он
-   * принимается, действие гейтится как обычно, теряется лишь аналитическая
-   * достижимость строки. Шуметь на каждый вызов значило бы засорять консоль
-   * партнёра там, где он ничего не сломал.
+   * Once per session, and only at debug level. An identity-less envelope is
+   * not an error: it is accepted, the action is gated as usual, and all that
+   * is lost is the analytic reachability of the row. Warning on every call
+   * would be noise in the integrator's console for something they did not
+   * break.
    *
-   * Со штатным `Identity` сюда не попасть: он всегда отдаёт `anonymousId`.
-   * Ветка живёт для чужого `IdentitySource`, поэтому и совет указывает на
-   * него, а не на `identify()` — тот ничего не изменит, конверт заполняется
-   * из источника партнёра.
+   * With the built-in `Identity` this branch is unreachable — it always
+   * returns an `anonymousId`. It exists for someone else's `IdentitySource`,
+   * which is why the advice points there rather than at `identify()`: that
+   * would change nothing, since the envelope is filled from the integrator's
+   * own source.
    */
   private noteMissingIdentity(): void {
     if (this.warnedNoIdentity) return
@@ -211,13 +217,14 @@ export class PolicyClient {
   }
 
   /**
-   * Приоритет: точечное переопределение партнёра → подсказка семейного слоя →
-   * таблица конвенций → дефолт партнёра → `open`.
+   * Priority: the integrator's per-key override → the family layer's hint →
+   * the conventions table → the integrator's default → `open`.
    *
-   * `failMode.default` стоит ПОСЛЕ таблицы намеренно: это фолбэк для ключей,
-   * которых в таблице нет. Иначе партнёр, задавший `default: 'open'` ради
-   * своих кастомных ключей, молча снял бы fail-closed со всех денежных
-   * действий — чтобы ослабить именно их, есть явный `byTypeKey`.
+   * `failMode.default` comes AFTER the table deliberately: it is the fallback
+   * for keys the table does not have. Otherwise an integrator who set
+   * `default: 'open'` for their own custom keys would silently remove
+   * fail-closed from every money action — to weaken those specifically there
+   * is an explicit `byTypeKey`.
    */
   private resolveFailMode(facts: Facts, opts?: GuardOptions): FailMode {
     return (

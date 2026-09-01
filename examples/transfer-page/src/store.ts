@@ -1,10 +1,10 @@
 /**
- * Минимальный лог-стор под `useSyncExternalStore`. Нужен дважды (wire-вызовы и
- * уведомления политики), поэтому вынесен, а не скопирован.
+ * A minimal log store for `useSyncExternalStore`. It is needed twice (wire
+ * calls and policy notices), so it is factored out rather than copied.
  *
- * Снапшот — новый массив на каждую запись и один и тот же между записями:
- * `useSyncExternalStore` сравнивает по ссылке и уйдёт в бесконечный ререндер,
- * если `get()` каждый раз возвращает свежий объект.
+ * The snapshot is a new array per write and the same one between writes:
+ * `useSyncExternalStore` compares by reference and would re-render forever if
+ * `get()` returned a fresh object every time.
  */
 export interface LogStore<T> {
   subscribe(listener: () => void): () => void

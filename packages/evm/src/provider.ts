@@ -3,26 +3,27 @@ import { buildFacts, type Eip1193RequestArgs } from './facts'
 import { GATED_METHODS } from './methods'
 
 /**
- * Переиспользуемое ядро перехвата EVM-семейства. Многие embedded-кошельки
- * (Privy/Dynamic/CDP/Reown) экспонируют стандартный EIP-1193 provider → один
- * wrapper покрывает их разом, адаптеры остаются тонкими.
+ * The reusable interception core of the EVM family. Many embedded wallets
+ * (Privy/Dynamic/CDP/Reown) expose a standard EIP-1193 provider, so one wrapper
+ * covers them all at once and the adapters stay thin.
  */
 
 export interface Eip1193Provider {
   request(args: Eip1193RequestArgs): Promise<unknown>
 }
 
-/** chainId фиксированным значением или резолвером (для live-сетей: chainChanged). */
+/** chainId as a fixed value or as a resolver (for live networks: chainChanged). */
 type ChainIdSource = string | number | (() => string | number)
 
 /**
- * Оборачивает EIP-1193 provider: гейтит отправку транзакций и подпись typed-data
- * через policy, после успеха шлёт fire-and-forget аналитику. Батч (wallet_sendCalls)
- * оценивается покалльно — если хоть один call отклонён, `guard` бросает
- * `HaiaPolicyError` и весь запрос не уходит в кошелёк.
+ * Wraps an EIP-1193 provider: gates transaction sends and typed-data signatures
+ * through policy, and on success sends fire-and-forget analytics. A batch
+ * (wallet_sendCalls) is evaluated per call — if any one call is rejected,
+ * `guard` throws `HaiaPolicyError` and the whole request never reaches the
+ * wallet.
  *
- * Клиент НЕ решает, гейтится ли действие: всё перехваченное уходит на сервер,
- * негейченное получает быстрый `approved (not_gated)`.
+ * The client does NOT decide whether an action is gated: everything intercepted
+ * goes to the server, and anything ungated gets a fast `approved (not_gated)`.
  */
 export function wrapEip1193Provider(
   provider: Eip1193Provider,
@@ -32,8 +33,8 @@ export function wrapEip1193Provider(
   const resolveChainId = (): string | number =>
     typeof chainId === 'function' ? chainId() : chainId
 
-  // Прозрачно прокидываем ВСЕ аргументы (viem передаёт вторым options:
-  // dedupe/retryCount/uid), чтобы не терять их на gated/passthrough вызовах.
+  // Forward ALL arguments transparently (viem passes options second:
+  // dedupe/retryCount/uid) so they are not lost on gated or passthrough calls.
   const forward = provider.request.bind(provider) as (...args: unknown[]) => Promise<unknown>
 
   const request = (async (...args: unknown[]) => {
@@ -41,12 +42,12 @@ export function wrapEip1193Provider(
     if (!GATED_METHODS.has(reqArgs.method)) {
       return forward(...args)
     }
-    // Отклонение любого из фактов бросит HaiaPolicyError наружу — до forward
-    // дело не дойдёт, подпись не запрашивается.
+    // A rejection of any of the facts throws HaiaPolicyError outward — the
+    // forward is never reached and no signature is requested.
     //
-    // Без подсказки failMode: все ключи семейства уже в таблице конвенций ядра
-    // (DEFAULT_FAIL_MODE_BY_TYPE_KEY) — дублировать её здесь значило бы завести
-    // второй источник правды.
+    // No failMode hint: every key of this family is already in the kernel's
+    // conventions table (DEFAULT_FAIL_MODE_BY_TYPE_KEY), and duplicating it
+    // here would create a second source of truth.
     const evaluated = await Promise.all(
       buildFacts(reqArgs, resolveChainId()).map(async (facts) => ({
         facts,
@@ -64,12 +65,14 @@ export function wrapEip1193Provider(
     return result
   }) as Eip1193Provider['request']
 
-  // Proxy сохраняет остальной интерфейс провайдера (on/removeListener/…),
-  // подменяя только request. Важно:
-  //  - Reflect.get без receiver → геттеры исполняются с this=target, иначе
-  //    приватные поля (#field) класс-провайдеров бросают TypeError;
-  //  - кэш связанных методов → стабильная идентичность (provider.on === provider.on),
-  //    иначе removeListener не находит обработчик и подписки текут.
+  // The Proxy preserves the rest of the provider's interface
+  // (on/removeListener/…) and replaces only request. Two things matter:
+  //  - Reflect.get without a receiver, so getters run with this=target;
+  //    otherwise the private fields (#field) of class providers throw
+  //    TypeError;
+  //  - a cache of bound methods, for stable identity (provider.on ===
+  //    provider.on); otherwise removeListener cannot find the handler and
+  //    subscriptions leak.
   const boundMethods = new Map<PropertyKey, unknown>()
   return new Proxy(provider, {
     get(target, prop) {
@@ -93,20 +96,21 @@ export function wrapEip1193Provider(
 }
 
 /**
- * Легаси-транспорты того же провайдера. MetaMask и Coinbase Wallet до сих пор
- * их экспонируют (проверено на живом инжекте), а web3.js 1.x и фолбэк-путь
- * ethers v5 ими пользуются. Через них уходит тот же `eth_sendTransaction` —
- * то есть мимо гейта, если просто прокинуть их дальше.
+ * The legacy transports of the same provider. MetaMask and Coinbase Wallet
+ * still expose them, and web3.js 1.x and the ethers v5 fallback path use them.
+ * The same `eth_sendTransaction` goes through them — that is, around the gate,
+ * if they are simply forwarded.
  */
 const LEGACY_RPC_METHODS: ReadonlySet<string> = new Set(['send', 'sendAsync'])
 
 /**
- * Отказ вместо прокидывания. Гейтить их «заодно» нельзя честно: у `send`
- * сосуществуют две несовместимые сигнатуры (`send(method, params)` у ethers v5
- * и `send(payload, callback)` у web3.js 1.x), а `sendAsync` работает через
- * error-first callback с JSON-RPC конвертом. Угадывать форму на денежном пути
- * дороже, чем отказать: ошибка при интеграции дешевле необъявленного обхода
- * гейта в проде.
+ * Refusal instead of forwarding. Gating them "as well" cannot be done
+ * honestly: `send` has two incompatible signatures living side by side
+ * (`send(method, params)` in ethers v5 and `send(payload, callback)` in
+ * web3.js 1.x), and `sendAsync` works through an error-first callback with a
+ * JSON-RPC envelope. Guessing the shape on the money path costs more than
+ * refusing: an error at integration time is cheaper than an undeclared way
+ * around the gate in production.
  */
 function legacyRefusal(name: string): () => never {
   return () => {

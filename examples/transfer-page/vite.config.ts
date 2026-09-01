@@ -4,9 +4,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    // 5173 не случаен: он в дефолтном CORS-allowlist ingest-сервиса haia-cp
-    // (`_DEFAULT_ORIGINS` в backend/src/infra/config.py). На другом порту
-    // локальный прогон упрётся в preflight, а не в политику.
+    // 5173 is not arbitrary: it is the origin control plane deployments allow
+    // out of the box. On another port a local run hits a CORS preflight
+    // failure rather than a policy decision.
     port: 5173,
     strictPort: true,
   },

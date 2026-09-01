@@ -5,10 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { haiaTransport } from './transport'
 
 /**
- * Критерий приёмки контракта исходов: партнёр обязан программно отличать
- * haia-блок от ошибок кошелька. viem оборачивает ошибки транспорта в свои
- * классы, поэтому проверяем распознаваемость через РЕАЛЬНЫЙ viem-клиент, а не
- * на голом kernel.
+ * The acceptance criterion for the outcome contract: an integrator has to be
+ * able to tell a haia block from wallet errors in code. viem wraps transport
+ * errors in classes of its own, so recognisability is checked through a REAL
+ * viem client rather than on a bare kernel.
  */
 describe('HaiaPolicyError through a real viem client', () => {
   function blockingClient(): HaiaClient {
@@ -48,14 +48,14 @@ describe('HaiaPolicyError through a real viem client', () => {
       })
       .catch((e: unknown) => e)
 
-    // Голый instanceof здесь НЕ сработает: viem оборачивает в
-    // TransactionExecutionError — блок лежит в цепочке cause.
+    // A bare instanceof does NOT work here: viem wraps it in
+    // TransactionExecutionError, leaving the block in the cause chain.
     expect(err).not.toBeInstanceOf(HaiaPolicyError)
     const haia = asHaiaPolicyError(err)
     expect(haia).toBeInstanceOf(HaiaPolicyError)
     expect(haia?.reasons).toContain('unlimited_approval_blocked')
     expect(haia?.decisionId).toBe('dec_1')
-    // Транзакция не ушла в кошелёк.
+    // The transaction never reached the wallet.
     expect(provider.request.mock.calls.every((c) => c[0]?.method !== 'eth_sendTransaction')).toBe(
       true,
     )

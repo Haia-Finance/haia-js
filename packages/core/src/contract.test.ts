@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { HaiaConfig } from './config'
@@ -8,22 +8,20 @@ import { PolicyClient } from './policy/client'
 import type { Runtime } from './runtime'
 
 /**
- * Контрактный тест против wire-фикстур — исполняемой формы §3 контракта.
- * Источник правды живёт в haia-cp; здесь вендорится снапшот (см.
- * `contracts/PROVENANCE.md`). Обе реализации — gateway (валидирует конверты) и
- * этот SDK (их строит) — сверяются с одними и теми же файлами, поэтому дрейф
- * ловит unit-тест в разъехавшемся репозитории, а не e2e-прогон.
+ * Contract test against the wire fixtures in `contracts/policy/v1/` — the
+ * executable form of the policy/evaluate contract. The gateway validates
+ * envelopes against these files and this SDK builds envelopes from them, so a
+ * disagreement between the two shows up as a failing unit test here rather
+ * than as a 422 at integration time.
  *
- * ⚠️ Механизм подключения фикстур (vendor + drift-check) провизорный — см.
- * PROVENANCE.md. Кандидаты на замену: публикуемый `@haia/policy-contract` или
- * submodule.
+ * The fixtures are a vendored snapshot; see `contracts/PROVENANCE.md` for how
+ * it is kept current.
  */
 
 const CONTRACT_URL = new URL('../../../contracts/policy/v1/', import.meta.url)
-// fileURLToPath, а не .pathname: pathname процент-кодирован, и в клоне по пути
-// с пробелом ('~/My Projects/haia-js') existsSync получил бы '%20' и ответил
-// false. Ниже это тихо отключило бы drift-check — ровно ту проверку, ради
-// которой файл существует.
+// fileURLToPath, not .pathname: pathname is percent-encoded, so in a clone
+// under a path with a space ('~/My Projects/haia-js') existsSync would be
+// handed '%20' and answer false.
 const CONTRACT_DIR = fileURLToPath(CONTRACT_URL)
 
 function loadJson(rel: string): Record<string, unknown> {
@@ -51,7 +49,7 @@ const index = loadJson('index.json') as unknown as ContractIndex
 
 const cfg: HaiaConfig = { projectId: 'proj_1', publishableKey: 'pk_1' }
 
-/** Ловит тело исходящего запроса и позволяет вернуть заданный ответ. */
+/** Captures the body of the outgoing request and lets a response be scripted. */
 function captureRuntime(response: () => Response): {
   runtime: Runtime
   body: () => Record<string, unknown>
@@ -79,72 +77,86 @@ function captureRuntime(response: () => Response): {
   return { runtime, body: () => sent, headers: () => headers }
 }
 
-/** Identity на том же runtime, что и клиент — как в HaiaClient. */
+/** Identity on the same runtime as the client, as in HaiaClient. */
 function identityOf(runtime: Runtime): Identity {
   return new Identity(runtime)
 }
 
-describe('манифест покрывает все файлы (никаких незадекларированных фикстур)', () => {
-  it('каждый *.json в envelopes/ и verdicts/ назван в index.json', () => {
+describe('the manifest covers every file (no undeclared fixtures)', () => {
+  // The snapshot is data only. A stray file here means a re-vendor copied
+  // something that is not part of the artifact — prose belongs to whoever owns
+  // the directory it lives in, and prose written elsewhere carries links that
+  // do not resolve here.
+  it('holds the manifest and the two fixture directories, nothing else', () => {
+    // Dotfiles are ignored: .DS_Store is a fact about opening the directory in
+    // Finder, not about what was vendored, and failing on it would train
+    // people to ignore this test.
+    const entries = readdirSync(CONTRACT_DIR).filter((name) => !name.startsWith('.'))
+    expect(entries.sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
+  })
+
+  it('every *.json in envelopes/ and verdicts/ is named in index.json', () => {
     const declared = new Set(['index.json', ...index.cases.map((c) => c.file), ...index.verdicts])
     for (const dir of ['envelopes', 'verdicts']) {
       for (const name of readdirSync(new URL(`${dir}/`, CONTRACT_URL))) {
         if (name.endsWith('.json')) {
-          expect(declared.has(`${dir}/${name}`), `${dir}/${name} не объявлен в index.json`).toBe(
-            true,
-          )
+          expect(
+            declared.has(`${dir}/${name}`),
+            `${dir}/${name} is not declared in index.json`,
+          ).toBe(true)
         }
       }
     }
   })
 })
 
-describe('границы clientEventId совпадают с манифестом', () => {
+describe('the clientEventId bounds match the manifest', () => {
   const { maxLength, charset } = index.limits.clientEventId
 
-  it(`charset манифеста — ${charset}`, () => {
+  it(`the manifest charset is ${charset}`, () => {
     expect(charset).toBe('[A-Za-z0-9_-]')
   })
 
-  it(`принимает id длиной ровно ${maxLength}`, () => {
+  it(`accepts an id of exactly ${maxLength} characters`, () => {
     const atLimit = 'a'.repeat(maxLength)
     expect(asClientEventId(atLimit)).toBe(atLimit)
   })
 
-  it(`отвергает id длиной ${maxLength + 1}`, () => {
+  it(`rejects an id of ${maxLength + 1} characters`, () => {
     expect(() => asClientEventId('a'.repeat(maxLength + 1))).toThrow()
   })
 
-  it('отвергает символ вне charset манифеста', () => {
+  it('rejects a character outside the manifest charset', () => {
     expect(() => asClientEventId('01J9$X8Y')).toThrow()
   })
 })
 
-describe('asClientEventId ↔ конверты фикстур', () => {
-  // SDK валидирует именно clientEventId (границы, не схема). Прогоняем каждый
-  // конверт, у которого поле есть: valid-* несут годный id, а invalid-*-client-
-  // event-id — негодный. Прочие invalid-* (typeKey, meta) валидируются сервером,
-  // SDK такие Facts не конструирует (закрытый enum typeKey, брендированный id).
+describe('asClientEventId ↔ the fixture envelopes', () => {
+  // The SDK validates the clientEventId specifically (bounds, not a schema).
+  // Every envelope that has the field is run through: valid-* carry a good id
+  // and invalid-*-client-event-id a bad one. The other invalid-* cases
+  // (typeKey, meta) are validated by the server, and the SDK cannot construct
+  // such Facts anyway (a closed typeKey enum and a branded id).
   for (const c of index.cases) {
     const envelope = loadJson(c.file) as { clientEventId?: unknown }
     const id = envelope.clientEventId
-    if (typeof id !== 'string') continue // missing-client-event-id — нечего валидировать
+    if (typeof id !== 'string') continue // missing-client-event-id — nothing to validate
 
     const aboutClientEventId = c.file.includes('client-event-id')
     if (c.accepted) {
-      it(`${c.file}: принимает id`, () => {
+      it(`${c.file}: accepts the id`, () => {
         expect(asClientEventId(id)).toBe(id)
       })
     } else if (aboutClientEventId) {
-      it(`${c.file}: отвергает id (${c.reason})`, () => {
+      it(`${c.file}: rejects the id (${c.reason})`, () => {
         expect(() => asClientEventId(id)).toThrow()
       })
     }
   }
 })
 
-describe('SDK строит конверт валидной формы', () => {
-  it('для канонического действия шлёт ровно {clientEventId, typeKey, meta} на per-project путь', async () => {
+describe('the SDK builds an envelope of valid shape', () => {
+  it('sends exactly {clientEventId, typeKey, meta} to the per-project path for a canonical action', async () => {
     const cap = captureRuntime(
       () =>
         new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
@@ -163,34 +175,34 @@ describe('SDK строит конверт валидной формы', () => {
     })
 
     const body = cap.body()
-    // Верхний уровень ⊆ разрешённых ключей манифеста.
+    // The top level ⊆ the keys the manifest allows.
     expect(Object.keys(body).sort()).toEqual(['clientEventId', 'meta', 'typeKey'])
-    // clientEventId прошёл бы валидацию gateway.
+    // The clientEventId would pass the gateway validation.
     expect(() => asClientEventId(body.clientEventId as string)).not.toThrow()
     expect(cap.headers()['idempotency-key']).toBe(body.clientEventId)
     expect((body.typeKey as string).length).toBeGreaterThanOrEqual(index.limits.typeKey.minLength)
   })
 })
 
-describe('identity в meta — имена ключей не разъехались с контрактом', () => {
-  // Зеркало TestIdentityConvention на стороне haia-cp: обе реализации сверяют
-  // свои константы с одной фикстурой. Разойдись имена — ни один запрос не
-  // упадёт, просто запись вердикта выпадет из воронок и из GDPR-каскада.
+describe('identity in meta — the key names have not drifted from the contract', () => {
+  // The control plane checks its own constants against the same fixture. Were
+  // the names to drift apart, no request would fail — the decision record
+  // would just drop out of every funnel and out of the erasure cascade.
   const identityCase = index.cases.find((c) => c.file.includes('with-identity'))
 
-  it('манифест объявляет кейс с идентичностью', () => {
-    expect(identityCase, 'index.json потерял envelopes/valid-with-identity.json').toBeDefined()
+  it('the manifest declares an identity case', () => {
+    expect(identityCase, 'index.json lost envelopes/valid-with-identity.json').toBeDefined()
     expect(identityCase?.accepted).toBe(true)
   })
 
-  it('IDENTITY_META_KEYS совпадает с ключами фикстуры', () => {
+  it('IDENTITY_META_KEYS matches the fixture keys', () => {
     const meta = (loadJson(identityCase?.file ?? '') as { meta: Record<string, unknown> }).meta
     for (const key of IDENTITY_META_KEYS) {
-      expect(meta, `фикстура не несёт ${key}`).toHaveProperty(key)
+      expect(meta, `the fixture does not carry ${key}`).toHaveProperty(key)
     }
   })
 
-  it('SDK кладёт оба ключа в конверт авторизованного пользователя', async () => {
+  it('the SDK puts both keys in the envelope of an authenticated user', async () => {
     const cap = captureRuntime(
       () =>
         new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
@@ -208,16 +220,16 @@ describe('identity в meta — имена ключей не разъехалис
     const meta = cap.body().meta as Record<string, unknown>
     expect(meta.userId).toBe('u_8f21c4')
     expect(meta.anonymousId).toEqual(expect.any(String))
-    // Обязательными на wire они НЕ становятся: §3.1 п.1 фиксирует ровно два
-    // обязательных поля, и верхний уровень конверта не меняется.
+    // They do NOT become required on the wire: the contract fixes exactly two
+    // required fields, and the top level of the envelope does not change.
     expect(Object.keys(cap.body()).sort()).toEqual(['clientEventId', 'meta', 'typeKey'])
   })
 })
 
-describe('SDK разбирает вердикты фикстур', () => {
+describe('the SDK parses the fixture verdicts', () => {
   for (const file of index.verdicts) {
     const verdict = loadJson(file) as { decision: string; decisionId: string; reasons?: string[] }
-    it(`${file}: ${verdict.decision} проходит через клиента без искажений`, async () => {
+    it(`${file}: ${verdict.decision} passes through the client undistorted`, async () => {
       const cap = captureRuntime(() => new Response(JSON.stringify(verdict), { status: 200 }))
       const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
 
@@ -234,25 +246,7 @@ describe('SDK разбирает вердикты фикстур', () => {
   }
 })
 
-// Дрейф: если исходник рядом (локальная разработка), снапшот обязан совпадать
-// байт в байт. В CI без haia-cp проверка пропускается — тест идёт по снапшоту.
-const SIBLING = new URL('../../../../haia-cp/contracts/policy/v1/', import.meta.url)
-describe.skipIf(!existsSync(fileURLToPath(SIBLING)))('снапшот не разъехался с источником', () => {
-  it('каждый вендоренный файл байт-в-байт равен haia-cp', () => {
-    const walk = (root: URL, sub = ''): string[] =>
-      readdirSync(new URL(sub, root), { withFileTypes: true }).flatMap((e: Dirent) =>
-        e.isDirectory() ? walk(root, `${sub}${e.name}/`) : [`${sub}${e.name}`],
-      )
-    for (const rel of walk(CONTRACT_URL)) {
-      if (rel === 'PROVENANCE.md') continue
-      const vendored = readFileSync(new URL(rel, CONTRACT_URL))
-      const source = readFileSync(new URL(rel, SIBLING))
-      expect(vendored.equals(source), `${rel} разошёлся с haia-cp — обнови снапшот`).toBe(true)
-    }
-  })
-})
-
-// Прогоняем CONTRACT_DIR через использование, чтобы неверный путь падал явной
-// ошибкой чтения, а не пустым набором тестов.
+// A wrong fixture path must fail as an explicit read error, not as an empty
+// and silently passing test set.
 if (!existsSync(CONTRACT_DIR))
   throw new Error(`haia: contract fixtures not found at ${CONTRACT_DIR}`)

@@ -10,7 +10,7 @@ function identityOn(storage: KeyValueStorage): Identity {
   } as Runtime)
 }
 
-/** localStorage переполнен: чтение работает, запись бросает. */
+/** localStorage is full: reads work, writes throw. */
 function readOnlyStorage(seed: Record<string, string> = {}): KeyValueStorage {
   const store = new Map(Object.entries(seed))
   return {
@@ -35,9 +35,9 @@ function memoryStorage(seed: Record<string, string> = {}): KeyValueStorage & {
 }
 
 describe('Identity', () => {
-  it('видит правку соседней вкладки, пока запись исправна', () => {
-    // Теневое значение не должно затенять storage в обычном случае — иначе
-    // identify() в одной вкладке перестал бы доезжать до другой.
+  it('sees an edit from another tab while writes work', () => {
+    // The shadow value must not shadow storage in the normal case — otherwise
+    // an identify() in one tab would stop reaching another.
     const storage = memoryStorage()
     const identity = identityOn(storage)
     identity.setUserId('u_1')
@@ -47,11 +47,11 @@ describe('Identity', () => {
     expect(identity.userId()).toBe('u_from_other_tab')
   })
 
-  it('setUserId вступает в силу, даже когда запись в storage провалилась', () => {
-    // Квота переполнена, а в storage лежит прошлый пользователь. Прочитай мы
-    // сначала storage — смена кошелька не вступила бы в силу никогда, и
-    // денежные действия B ушли бы под userId A (а запрос на стирание A забрал
-    // бы строки B).
+  it('setUserId takes effect even when the write to storage failed', () => {
+    // The quota is full and storage holds the previous user. Were storage read
+    // first, switching wallets would never take effect: B’s money actions
+    // would go out under A's userId (and an erasure request for A would take
+    // B's rows).
     const identity = identityOn(readOnlyStorage({ 'haia.user_id': 'u_old' }))
 
     identity.setUserId('u_new')
@@ -60,7 +60,7 @@ describe('Identity', () => {
     expect(identity.meta().userId).toBe('u_new')
   })
 
-  it('держит anonymousId стабильным, когда запись бросает', () => {
+  it('keeps anonymousId stable when the write throws', () => {
     const identity = identityOn(readOnlyStorage())
 
     const first = identity.anonymousId()
@@ -69,7 +69,7 @@ describe('Identity', () => {
     expect(identity.meta().anonymousId).toBe(first)
   })
 
-  it('перестаёт затенять storage, как только запись снова прошла', () => {
+  it('stops shadowing storage as soon as a write succeeds again', () => {
     let broken = true
     const raw = new Map<string, string>()
     const identity = identityOn({
@@ -88,7 +88,7 @@ describe('Identity', () => {
     expect(identity.userId()).toBe('u_from_other_tab')
   })
 
-  it('meta() не бросает и опускает то, чего нет', () => {
+  it('meta() does not throw and omits what is absent', () => {
     const identity = identityOn({
       get: () => {
         throw new Error('storage unavailable')
@@ -105,17 +105,17 @@ describe('Identity', () => {
   })
 })
 
-describe('Identity + storage, который молча теряет запись', () => {
-  it('держит anonymousId стабильным', () => {
-    // `set` не бросает, но `get` потом отдаёт null — заглушка «ничего не
-    // персистить». Без подтверждения записи чтением id менялся бы на каждый
-    // вызов.
+describe('Identity + storage that silently drops the write', () => {
+  it('keeps anonymousId stable', () => {
+    // `set` does not throw, but `get` then returns null — the "persist
+    // nothing" stub. Without confirming the write by reading it back, the id
+    // would change on every call.
     const identity = identityOn({ get: () => null, set: () => {} })
 
     expect(identity.anonymousId()).toBe(identity.anonymousId())
   })
 
-  it('держит userId, заданный через setUserId', () => {
+  it('keeps the userId set through setUserId', () => {
     const identity = identityOn({ get: () => null, set: () => {} })
 
     identity.setUserId('u_42')

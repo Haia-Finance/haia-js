@@ -43,18 +43,18 @@ describe('newClientEventId — ULID', () => {
   })
 
   it('survives an environment without Web Crypto (old React Native)', () => {
-    vi.stubGlobal('crypto', undefined) // globalThis.crypto — getter-only в Node
+    vi.stubGlobal('crypto', undefined) // globalThis.crypto is getter-only in Node
     try {
       const ids = new Set(Array.from({ length: 100 }, () => newClientEventId()))
       for (const id of ids) expect(id).toMatch(CROCKFORD)
-      expect(ids.size).toBe(100) // фолбэк на Math.random всё ещё различает id
+      expect(ids.size).toBe(100) // the Math.random fallback still yields distinct ids
     } finally {
       vi.unstubAllGlobals()
     }
   })
 })
 
-describe('asClientEventId — границы приёма, не схема', () => {
+describe('asClientEventId — admission bounds, not a schema', () => {
   it('accepts our own ULID', () => {
     const id = newClientEventId()
     expect(asClientEventId(id)).toBe(id)
@@ -75,7 +75,7 @@ describe('asClientEventId — границы приёма, не схема', () 
     ['65 chars', 'a'.repeat(65)],
     ['space', 'has space'],
     ['slash', 'a/b'],
-    ['unicode', 'идентификатор'],
+    ['unicode', 'café-id'],
   ]
 
   for (const [label, value] of rejected) {

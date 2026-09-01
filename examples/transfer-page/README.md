@@ -1,19 +1,20 @@
 # Transfer page
 
-Страница перевода на wagmi: подключить кошелёк → выбрать сеть → адрес → сумма →
-Send. Ровно то, что уже написано в любом кошельке или dApp. Смысл примера в том,
-чего в нём **не** пришлось написать: гейт политики не появляется ни в форме, ни в
-обработчике Send.
+A transfer page built on wagmi: connect a wallet → pick a network → address →
+amount → Send. Exactly what every wallet and dApp already has. The point of the
+example is what it did **not** have to write: the policy gate appears neither in
+the form nor in the Send handler.
 
 ```sh
-pnpm install                 # из корня монорепо
+pnpm install                 # from the monorepo root
 cp .env.example .env.local   # projectId + publishableKey
 pnpm --filter @haia/example-transfer-page dev
 ```
 
-## Интеграция
+## The integration
 
-Три строки, все в [`src/wagmi.ts`](./src/wagmi.ts) и [`src/haia.ts`](./src/haia.ts):
+Three lines, all of them in [`src/wagmi.ts`](./src/wagmi.ts) and
+[`src/haia.ts`](./src/haia.ts):
 
 ```ts
 const haia = createHaiaClient({ projectId, publishableKey })
@@ -24,24 +25,25 @@ createConfig({
 })
 ```
 
-`haiaConnector` подменяет у коннектора один метод — `getProvider`. Наружу уходит
-тот же EIP-1193 провайдер, но методы из `GATED_METHODS` (`eth_sendTransaction`,
-`wallet_sendCalls`, `eth_signTypedData*`, …) сперва идут в
-`POST /v1/projects/{projectId}/policy/evaluate`, и только одобренные — в кошелёк.
-Поэтому [`App.tsx`](./src/App.tsx) не знает о политике ничего: `useSendTransaction`
-остаётся обычным wagmi-хуком, а снять гейт со всего приложения можно, убрав ровно
-эту обёртку.
+`haiaConnector` replaces exactly one method on the connector — `getProvider`. What
+comes out is the same EIP-1193 provider, except that the methods in `GATED_METHODS`
+(`eth_sendTransaction`, `wallet_sendCalls`, `eth_signTypedData*`, …) go to
+`POST /v1/projects/{projectId}/policy/evaluate` first, and only approved ones reach
+the wallet. That is why [`App.tsx`](./src/App.tsx) knows nothing about policy:
+`useSendTransaction` stays an ordinary wagmi hook, and the gate can be removed from
+the whole application by deleting that one wrapper.
 
-`multiInjectedProviderDiscovery: false` — не косметика. По умолчанию wagmi сам
-добавляет в конфиг коннекторы, найденные через EIP-6963: их создаёт wagmi, а не
-наш код, то есть мимо обёртки. Один необёрнутый коннектор в списке делает гейт
-необязательным — пользователь просто выбирает второй пункт в меню подключения.
+`multiInjectedProviderDiscovery: false` is not cosmetic. By default wagmi adds
+connectors it discovers over EIP-6963 to the config itself — wagmi creates them,
+not our code, which means they bypass the wrapper. One unwrapped connector in the
+list makes the gate optional: the user simply picks the other entry in the connect
+menu.
 
-Кошелёк при этом никуда не девается: `injected()` работает с `window.ethereum`,
-а его занимает установленное расширение — в примере кнопка так и подписана
-именем найденного кошелька. Теряется не кошелёк, а выбор между несколькими
-установленными сразу. Нужен выбор — перечислите цели явно, каждую в своей
-обёртке, оставив автопоиск выключенным:
+The wallet does not go anywhere: `injected()` talks to `window.ethereum`, which the
+installed extension occupies — in the example the button is labelled with the name
+of the wallet that was found. What is lost is not the wallet but the choice between
+several installed at once. If you need that choice, list the targets explicitly,
+each in its own wrapper, with discovery still off:
 
 ```ts
 connectors: [
@@ -50,23 +52,24 @@ connectors: [
 ]
 ```
 
-Единственное место, где приложение всё-таки знает про haia, — обработка исхода:
+The one place where the application does know about haia is handling the outcome:
 
 ```ts
 try {
   await sendTransactionAsync({ to, value })
 } catch (err) {
-  const blocked = asHaiaPolicyError(err)   // не instanceof: viem кладёт блок в cause
+  const blocked = asHaiaPolicyError(err)   // not instanceof: viem puts the block in cause
   if (blocked) showReasons(blocked.reasons)
 }
 ```
 
-## Что смотреть
+## What to look at
 
-Панель **Wire** внизу страницы показывает запрос и ответ каждого вызова к control
-plane — тем же телом, каким его отправил SDK. Она к интеграции не относится
-(подключена через `runtime.fetch`, см. [`src/wire-log.ts`](./src/wire-log.ts)) и
-нужна затем, чтобы контракт был виден глазами:
+The **Wire** panel at the bottom of the page shows the request and the response of
+every call to the control plane, with the same body the SDK sent. It is not part of
+the integration (it is wired in through `runtime.fetch`, see
+[`src/wire-log.ts`](./src/wire-log.ts)) and exists so the contract can be seen with
+your own eyes:
 
 ```json
 {
@@ -90,111 +93,82 @@ plane — тем же телом, каким его отправил SDK. Она
 { "decision": "approved", "decisionId": "dec_019ff8dd…", "reasons": ["policy_not_configured"] }
 ```
 
-Здесь видно и то, чего в UI нет:
+It shows things the UI does not:
 
-- **`clientEventId` — ULID**, он же `Idempotency-Key` заголовка и `messageId`
-  события холодного пути. По нему намерение, решение и исполнение сшиваются на
-  сервере, и по нему же дедуплицируется повтор. А вот `decisionId` на ретрае
-  будет другим: сервер оценивает намерение заново, и контракт объявляет его
-  стабильность best-effort — стабилен `clientEventId`.
-- **Сумма едет двумя формами** — `amount` и `amountRaw`, обе строками. Float на
-  денежном пути запрещён.
-- **`userId` / `anonymousId` страница не писала.** Их подмешал SDK: `userId` —
-  из `haia.identify(address)` на шаге 1, `anonymousId` — свой. Сравните
-  последний с тем же ключом в `/v1/batch` ниже: значение то же самое, и именно
-  по нему сервер склеивает намерение с исполнением.
-- **`/v1/batch` приходит позже** горячего пути и пачкой: аналитика
-  fire-and-forget, её сбой не виден приложению.
-- **Незнакомый control plane ключ не гейтит молча**: `reasons` объясняет, почему
-  вердикт такой. `policy_not_configured` — локальная инсталляция без движка
-  политик, `not_gated` — тип действия не заведён в реестре.
+- **`clientEventId` is a ULID**, and it is also the `Idempotency-Key` header and the
+  `messageId` of the cold-path event. The server stitches intent, decision and
+  execution together on it, and deduplicates retries by it. `decisionId`, by
+  contrast, will differ on a retry: the server evaluates the intent again, and the
+  contract declares its stability best-effort. The stable key is `clientEventId`.
+- **The amount travels in two forms** — `amount` and `amountRaw`, both as strings.
+  Floats are not allowed on the money path.
+- **The page never wrote `userId` / `anonymousId`.** The SDK attached them: `userId`
+  from `haia.identify(address)` in step 1, `anonymousId` its own. Compare the latter
+  with the same key in `/v1/batch` below — the value is identical, and it is what
+  the server uses to join the intent to its execution.
+- **`/v1/batch` arrives later** than the hot path and in a batch: analytics is
+  fire-and-forget and its failure is invisible to the application.
+- **A verdict is never silent about itself**: `reasons` explains why it came out
+  that way. `policy_not_configured` means the project has no policy pack armed;
+  `not_gated` means the action type is not registered.
 
 ### Fail-closed
 
-Остановите control plane и нажмите Send. Отправка будет **заблокирована**, окно
-кошелька не откроется:
+Point `VITE_HAIA_BASE_URL` at an unreachable host — or go offline — and press Send.
+The transaction is **blocked** and the wallet window never opens:
 
 ```
 reasons=[fallback_closed, unavailable]  decisionId=fallback:01KZWDXC…
 ```
 
-Так и задумано: `transfer_intent` — денежное действие, и при недоступности
-политики SDK применяет fail-closed. Для `sign_message` или `wallet_connected` в
-той же ситуации действие прошло бы (fail-open). Класс действия знает клиент —
-поэтому решение принимает он, а не сервер.
+That is intended: `transfer_intent` is a money action, so when policy is unavailable
+the SDK fails closed. For `sign_message` or `wallet_connected` in the same situation
+the action would go through (fail-open). The client is the side that knows the class
+of the action, so the client is the side that decides.
 
-## Против локального control plane
+## Pointing at a control plane
 
-Нужен запущенный haia-cp ([`~/haia-cp`](https://github.com/Haia-Finance)):
-
-```sh
-docker compose up -d postgres redis     # в корне haia-cp
-cd backend && make install && make migrate
-make bootstrap                          # печатает projectId и pit_-ключ
-make ingest-api                         # :8000 — на нём и policy-гейт, и ingest
-```
-
-`make bootstrap` идемпотентен и печатает ключ только когда создаёт его. Если
-проект уже существует, ключ достаётся из БД — он публичный и хранится как есть:
+Three variables in `.env.local`:
 
 ```sh
-docker compose exec postgres psql -U postgres -d haia_cp -At -F'|' \
-  -c "SELECT project_id, token, scopes FROM public_ingest_tokens WHERE revoked_at IS NULL;"
-```
-
-Годится строка, у которой в `scopes` есть **`policy:evaluate`** — без него гейт
-ответит 403, и SDK уйдёт в fail-mode.
-
-Дальше — в `.env.local`:
-
-```sh
-VITE_HAIA_PROJECT_ID=<uuid проекта>
+VITE_HAIA_PROJECT_ID=<project uuid>
 VITE_HAIA_PUBLISHABLE_KEY=pit_…
-VITE_HAIA_BASE_URL=http://localhost:8000
+VITE_HAIA_BASE_URL=          # empty → https://api.haia.finance
 ```
 
-Два места, где локальный прогон обычно спотыкается:
+`projectId` and the publishable key come from the project's API keys. The key must
+carry the **`policy:evaluate`** scope — without it the gate answers 403 and the SDK
+goes to its fail-mode, which for a transfer means the send is blocked.
 
-- **CORS.** Ingest-сервис пускает только origin-ы из своего allowlist; 5173 в нём
-  есть по умолчанию, поэтому dev-сервер примера прибит к этому порту
-  (`strictPort`). Другой порт — preflight, а не политика.
-- **Занятый 8000.** Если порт уже кем-то держится, поднимайте сервис явно
-  (`HTTP_PORT=8010 uv run python -m run.http.ingest_api`) и поправьте
-  `VITE_HAIA_BASE_URL` — иначе запросы уедут в чужое приложение, а SDK честно
-  отчитается «сервис недоступен».
+Leave `VITE_HAIA_BASE_URL` empty to talk to the hosted control plane, or set it to
+your own deployment. Two things a self-hosted run usually trips over:
 
-Проверить, что долетело, можно в самой базе:
+- **CORS.** The control plane only admits origins on its allowlist. The dev server
+  is pinned to port 5173 (`strictPort` in [`vite.config.ts`](./vite.config.ts))
+  because that is the origin most deployments allow out of the box; from another
+  port you hit a preflight failure, not a policy decision.
+- **The latency budget.** A deployment that is cold on the first request can exceed
+  the SDK's 400 ms budget, and for a transfer that budget expiring means fail-closed.
+  Raise it with `VITE_HAIA_LATENCY_BUDGET_MS` while you are testing.
 
-```sh
-docker compose exec postgres psql -U postgres -d haia_cp -c "
-  SELECT client_event_id,
-         user_id, anonymous_id,
-         properties->>'type_key'  AS type_key,
-         properties->>'decision'  AS decision,
-         properties->'reasons'    AS reasons
-  FROM events
-  WHERE event_type = '\$policy_decision'
-  ORDER BY occurred_at DESC LIMIT 5;"
-```
+To confirm what actually arrived, read the Wire panel: it shows the exact request
+body and the exact verdict, including whether `userId` / `anonymousId` were present
+in `meta`. If both are empty, the SDK sent an envelope with no identity — the verdict
+is unaffected, but the record it produces will not be counted by any funnel and will
+not be reachable by an erasure request.
 
-Журнал политики — обычные события: отдельных таблиц у него больше нет, каждый
-вердикт это строка в `events` с `event_origin='system'`. Поэтому и важны
-колонки `user_id` / `anonymous_id` в выдаче: они заполнены из `meta` конверта,
-и именно их непустота решает, попадёт ли строка в воронки и найдёт ли её запрос
-на стирание. Если обе пусты — SDK отправил безличный конверт.
+## What is real here
 
-## Что здесь настоящее
+Real: the SDK, the wallet, the network, the transaction and the calls to the control
+plane. The example mocks nothing — if Send goes through, the transaction really did
+go to the network.
 
-Настоящее: SDK, кошелёк, сеть, транзакция и вызовы к control plane. Пример ничего
-не мокает — если Send прошёл, транзакция ушла в сеть на самом деле.
-
-Поэтому сети — **тестовые** (Sepolia, Base Sepolia, Arbitrum Sepolia): пример
-публичный и открывается человеком с настоящим кошельком. Механика гейта от сети
-не зависит; чтобы посмотреть на mainnet, поменяйте `chains` и `transports` в
+That is why the networks are **testnets** (Sepolia, Base Sepolia, Arbitrum Sepolia):
+the example is public and gets opened by people with real wallets. Gating does not
+depend on the network; to look at mainnet, change `chains` and `transports` in
 [`src/wagmi.ts`](./src/wagmi.ts).
 
-Вердикты локально почти всегда `approved` с причиной `policy_not_configured`:
-движок политик (Swiftward) в дефолтный `docker compose up` не входит, а гейт без
-армированного пака не выдумывает решение, а пропускает действие и говорит, почему.
-Чтобы увидеть настоящий `rejected`, поднимите профиль `swiftward` в haia-cp и
-заармируйте пак на проекте.
+Against a project with no policy pack armed, verdicts are almost always `approved`
+with the reason `policy_not_configured`: a gate with nothing armed does not invent a
+decision, it lets the action through and says why. To see a real `rejected`, arm a
+pack on the project.

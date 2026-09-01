@@ -4,11 +4,11 @@
 '@haia/wagmi': minor
 ---
 
-Выделение семейного слоя `@haia/evm` из ядра (HAD-333).
+Split the EVM family layer out of the kernel into `@haia/evm`.
 
-Разрез зафиксирован до первой публикации в npm — после он был бы breaking change. Обоснование границы: универсальная машинерия меняется в темпе нашего контракта, семейный слой — в темпе чужой экосистемы (новые селекторы, новые EIP). Склеенные в один пакет, они дают каскад версий: правка EVM-декодера бампила бы ядро и всех потребителей, включая не-EVM.
+The split is made before the first npm release, because afterwards it would be a breaking change. Universal machinery changes at the pace of our own contract; a family layer changes at the pace of someone else's ecosystem (new selectors, new EIPs). Glued into one package they cascade: an EVM decoder fix would bump the kernel and every consumer of it, including non-EVM ones.
 
-- Новый пакет `@haia/evm`: `wrapEip1193Provider`, декодеры calldata (approve / increaseAllowance / setApprovalForAll / permit), `toCaip2`, нормализация в плоские факты. Зависит от `@haia/core` через публичный API; обратной зависимости нет.
-- `@haia/core` больше не содержит EVM-кода. Новое: `newClientEventId()` — генерация id действия живёт в ядре, потому что это свойство wire-контракта, а не конкретного семейства.
-- `@haia/wagmi` — только клей поверх `@haia/evm`; SDK провайдеров остаются в peerDependencies.
-- Ревизия списка перехвата: добавлен `eth_signTransaction` (подпись без бродкаста — та же денежная поверхность, тот же конверт параметров). `eth_sendRawTransaction` осознанно **не** гейтится — обоснование в `packages/evm/src/methods.ts`, решение закреплено тестом.
+- New package `@haia/evm`: `wrapEip1193Provider`, calldata decoders (approve / increaseAllowance / setApprovalForAll / permit), `toCaip2`, and normalization into flat facts. It depends on `@haia/core` through the public API; there is no dependency back the other way.
+- `@haia/core` no longer contains EVM code. New: `newClientEventId()` — generating an action id lives in the kernel because it is a property of the wire contract, not of a particular family.
+- `@haia/wagmi` is glue over `@haia/evm` only; provider SDKs stay in peer dependencies.
+- The interception list was revised: `eth_signTransaction` is now gated (signing without broadcast is the same money surface, with the same parameter envelope). `eth_sendRawTransaction` is deliberately **not** gated — the reasoning is in `packages/evm/src/methods.ts` and the decision is pinned by a test.

@@ -4,7 +4,7 @@ import type { Facts, Verdict } from '@haia/types'
 import { describe, expect, it, vi } from 'vitest'
 import { type Eip1193Provider, wrapEip1193Provider } from './provider'
 
-/** Мимикрирует фасад: на rejected `guard` бросает, а не возвращает вердикт. */
+/** Mimics the facade: on rejected, `guard` throws rather than returning a verdict. */
 function fakeClient(decision: Verdict['decision'] = 'approved') {
   const guard = vi.fn(async (facts: Facts): Promise<Verdict> => {
     const verdict: Verdict = { decision, decisionId: 'd', reasons: ['test'] }
@@ -104,10 +104,11 @@ describe('wrapEip1193Provider', () => {
     expect(guard.mock.calls[0]?.[0]?.typeKey).toBe('token_approval')
   })
 
-  it('does NOT gate eth_sendRawTransaction (HAD-333 decision)', async () => {
-    // Транзакция уже подписана: гейт здесь предотвращает только бродкаст, а
-    // подписанную транзакцию можно отправить в любой публичный RPC мимо нас.
-    // См. обоснование в methods.ts — если решение меняется, падает этот тест.
+  it('does NOT gate eth_sendRawTransaction', async () => {
+    // The transaction is already signed: a gate here prevents only the
+    // broadcast, and a signed transaction can be sent to any public RPC without
+    // us. See the reasoning in methods.ts — if that decision changes, this test
+    // fails.
     const { client, guard } = fakeClient()
     const request = vi.fn(async () => '0xhash')
     const wrapped = wrapEip1193Provider({ request }, client, 1)
@@ -200,9 +201,9 @@ describe('wrapEip1193Provider', () => {
   })
 
   it('refuses legacy send/sendAsync instead of passing them through ungated', async () => {
-    // Инжектированные кошельки (MetaMask, Coinbase) до сих пор их экспонируют,
-    // а web3.js 1.x и фолбэк ethers v5 ими пользуются: через них уходит тот же
-    // eth_sendTransaction. Прокинуть их означало бы негейченный денежный путь.
+    // Injected wallets (MetaMask, Coinbase) still expose them, and web3.js 1.x
+    // and the ethers v5 fallback use them: the same eth_sendTransaction goes
+    // through them. Forwarding them would mean an ungated money path.
     const { client, guard } = fakeClient()
     const send = vi.fn()
     const sendAsync = vi.fn()

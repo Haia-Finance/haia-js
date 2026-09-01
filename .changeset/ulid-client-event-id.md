@@ -5,16 +5,16 @@
 '@haia/wagmi': minor
 ---
 
-Находки ревью HAD-333: формат id, `meta.amount`, инварианты на стыке пакетов.
+`clientEventId` is now a real ULID, `meta.amount` is populated, and cross-package invariants are pinned by tests.
 
-**`clientEventId` — настоящий ULID вместо UUID.** SDK слал `crypto.randomUUID()`, тогда как контракт §3.1 специфицирует ULID, а §5.1 обязывает gateway валидировать форму — на интеграции с HAD-332 это дало бы 4xx на каждом запросе и, через трактовку 4xx как конфиг-ошибки, fail-closed на всём денежном пути. Своя реализация (~30 строк, без зависимостей): 48 бит времени + 80 бит случайности, Crockford base32. Временной префикс делает журнал сортируемым по ключу.
+**`clientEventId` is a ULID, not a UUID.** The SDK was sending `crypto.randomUUID()` while the contract specifies a ULID and requires the gateway to validate its shape — which would have meant a 4xx on every request and, since a 4xx is read as a configuration error, fail-closed across the whole money path. The implementation is dependency-free (~30 lines): 48 bits of time plus 80 bits of randomness, Crockford base32. The time prefix makes the journal sortable by key.
 
-- `ClientEventId` — брендированный тип в `@haia/types`: голая строка в конверт не попадёт.
-- `newClientEventId()` — генерация; `asClientEventId(value)` — впуск чужих id (manual guard, серверные источники) по границам 1–64 и `[A-Za-z0-9_-]`, тем же правилам, что у gateway. Строгий ULID на приёме запрещён планом.
-- `randomId` (UUID) удалён; `anonymousId` аналитики тоже на ULID — формат id в SDK один.
+- `ClientEventId` is a branded type in `@haia/types`: a bare string will not reach the envelope.
+- `newClientEventId()` generates one; `asClientEventId(value)` admits ids from elsewhere (manual guard, server-side sources) under the same bounds the gateway enforces — 1–64 chars, `[A-Za-z0-9_-]`. Ids are bounds-checked on the way in, never schema-checked.
+- `randomId` (UUID) is gone; the analytics `anonymousId` is a ULID too, so the SDK has one id format rather than two.
 
-**`meta.amount`.** Факты несли только `amountRaw`, хотя словарь конвенций и пример §3.1 содержат обе формы: правило пака на `meta.amount` молча не срабатывало бы никогда. Для нативного перевода decimals известны (18) — форма заполняется; для ERC-20 остаётся только `amountRaw`, пока нет декодера `transfer()`.
+**`meta.amount`.** Facts carried only `amountRaw`, though the conventions dictionary defines both forms — a policy rule written against `meta.amount` would silently never have matched. For a native transfer the decimals are known, so both forms are sent; for ERC-20 only `amountRaw` is available until there is a `transfer()` decoder.
 
-**Одна копия `@haia/core`.** Переведён в `peerDependencies` у `@haia/evm` и `@haia/wagmi`: две копии ядра означали бы два разных класса `HaiaPolicyError`, и `asHaiaPolicyError` возвращал бы `undefined` — ровно тот отказ, ради которого хелпер и добавлен.
+**One copy of `@haia/core`.** It is now a peer dependency of `@haia/evm` and `@haia/wagmi`. Two copies of the kernel would mean two distinct `HaiaPolicyError` classes and an `asHaiaPolicyError` that returns `undefined` — exactly the failure the helper exists to prevent.
 
-**Инварианты на стыке пакетов закреплены тестами.** `TYPE_KEYS ⊆ DEFAULT_FAIL_MODE_BY_TYPE_KEY` (промах = тихий fail-open на деньгах) и `GATED_METHODS ⊆ ветки buildFacts` — вместо молчаливого catch-all, выдававшего чужие params за `transfer_intent`, теперь явная ошибка.
+**Cross-package invariants are tests now.** `TYPE_KEYS ⊆ DEFAULT_FAIL_MODE_BY_TYPE_KEY` (a miss is a silent fail-open on money) and `GATED_METHODS ⊆ the branches of buildFacts` — the silent catch-all that passed another method's params off as `transfer_intent` is now an explicit error.

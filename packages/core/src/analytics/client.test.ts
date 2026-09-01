@@ -69,30 +69,30 @@ describe('AnalyticsClient', () => {
     const client = new AnalyticsClient(cfg, cap.runtime, 'https://api/v1/batch', late)
 
     client.enqueue({ type: 'track', event: 'before-login' })
-    user = 'user-42' // identify() случился между событиями
+    user = 'user-42' // identify() happened between the events
     client.enqueue({ type: 'identify', userId: 'user-42' })
     client.enqueue({ type: 'track', event: 'after-login' })
     await client.flush()
 
     const batch = cap.body().batch ?? []
-    expect(batch[0]?.userId).toBeUndefined() // до логина — только anonymousId
+    expect(batch[0]?.userId).toBeUndefined() // before login there is only an anonymousId
     expect(batch[1]?.userId).toBe('user-42')
     expect(batch[2]?.userId).toBe('user-42')
   })
 
   it('stamps each item with the event time, not the flush time', async () => {
-    // Без timestamp Segment-совместимый приёмник датирует событие приёмом, а
-    // между событием и приёмом лежат интервал флаша и ретраи: порядок событий
-    // на холодном пути переставился бы.
+    // Without a timestamp a Segment-compatible receiver dates the event at
+    // receipt, and between the event and receipt lie the flush interval and
+    // the retries: cold-path events would be reordered.
     const cap = capturing()
     let clock = 1_000
     const runtime: Runtime = { ...cap.runtime, now: () => clock }
     const client = new AnalyticsClient(cfg, runtime, 'https://api/v1/batch', identity)
 
     client.enqueue({ type: 'track', event: 'first' })
-    clock = 7_000 // прошло время до второго события
+    clock = 7_000 // time passed before the second event
     client.enqueue({ type: 'track', event: 'second' })
-    clock = 60_000 // ... и ещё до флаша
+    clock = 60_000 // ... and more before the flush
     await client.flush()
 
     const batch = cap.body().batch ?? []
@@ -153,10 +153,10 @@ describe('AnalyticsClient', () => {
     const client = new AnalyticsClient(cfg, runtime, 'https://api/v1/batch', identity)
 
     client.enqueue({ type: 'track', event: 'approval', clientEventId: '01J9' })
-    await client.flush() // офлайн → батч роняется после ретраев
+    await client.flush() // offline → the batch is dropped after the retries
 
     online = true
-    client.enqueue({ type: 'track', event: 'approval', clientEventId: '01J9' }) // повтор
+    client.enqueue({ type: 'track', event: 'approval', clientEventId: '01J9' }) // resend
     await client.flush()
 
     expect(sent.length).toBe(1)

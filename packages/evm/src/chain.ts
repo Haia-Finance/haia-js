@@ -9,7 +9,7 @@ const ALIASES: Record<string, CaipChainId> = {
   optimism: 'eip155:10',
 }
 
-/** Нормализует любое представление сети в CAIP-2 ("eip155:1"). */
+/** Normalizes any representation of a network into CAIP-2 ("eip155:1"). */
 export function toCaip2(chain: string | number): CaipChainId {
   if (typeof chain === 'number') return `eip155:${chain}`
   if (chain.includes(':')) return chain

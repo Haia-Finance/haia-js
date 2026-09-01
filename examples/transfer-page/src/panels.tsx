@@ -3,9 +3,9 @@ import { policyNotices } from './haia'
 import { type WireCall, wireLog } from './wire-log'
 
 /**
- * Две панели наблюдения. К интеграции они не относятся — партнёру ничего этого
- * писать не нужно; здесь они затем, чтобы контракт §3 был виден глазами, а не
- * только через devtools.
+ * Two observation panels. They are not part of the integration — an integrator
+ * writes none of this; they are here so the wire contract can be seen by eye
+ * rather than only through devtools.
  */
 
 export function PolicyNotices() {
@@ -13,7 +13,7 @@ export function PolicyNotices() {
   if (notices.length === 0) return null
   return (
     <section className="panel">
-      <h3>Хуки политики</h3>
+      <h3>Policy hooks</h3>
       <ul className="notices">
         {notices.map((n) => (
           <li key={`${n.decisionId}-${n.at}`} className={`notice ${n.decision}`}>
@@ -35,13 +35,13 @@ export function WireLog() {
       <div className="panel-head">
         <h3>Wire</h3>
         <button type="button" className="ghost" onClick={() => wireLog.clear()}>
-          Очистить
+          Clear
         </button>
       </div>
       {calls.length === 0 ? (
         <p className="hint">
-          Пока пусто. Горячий путь (<code>/policy/evaluate</code>) появится здесь при отправке,
-          холодный (<code>/v1/batch</code>) — пачкой, с задержкой до 5 секунд.
+          Nothing yet. The hot path (<code>/policy/evaluate</code>) shows up here on a send; the
+          cold one (<code>/v1/batch</code>) arrives in a batch, up to 5 seconds later.
         </p>
       ) : (
         <ul className="calls">
@@ -78,7 +78,7 @@ function statusClass(call: WireCall): string {
   return call.status < 400 ? 'status ok' : 'status bad'
 }
 
-/** Вердикт вытаскиваем из тела, а не из статуса: 200 ещё не значит approved. */
+/** The verdict is read from the body, not from the status: a 200 does not mean approved. */
 function verdictOf(call: WireCall): string | null {
   if (call.path !== 'policy') return null
   const body = call.response

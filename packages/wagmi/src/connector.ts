@@ -4,7 +4,7 @@ import type { Connector, CreateConnectorFn } from '@wagmi/core'
 import { type Hex, hexToNumber } from 'viem'
 
 export interface HaiaConnectorOptions {
-  /** Chain id; иначе резолвится из провайдера и обновляется по chainChanged. */
+  /** Chain id; otherwise resolved from the provider and updated on chainChanged. */
   chainId?: number
 }
 
@@ -13,21 +13,23 @@ interface EventfulProvider extends Eip1193Provider {
 }
 
 /**
- * Оборачивает wagmi-коннектор: его `getProvider` отдаёт guarded-провайдер
- * (policy + аналитика), сохраняя подписки на события. chainId резолвится один
- * раз и обновляется по `chainChanged` — без RPC-round-trip на каждый getProvider.
- * Типы из `@wagmi/core` (optional peer — нужен только для этого хелпера).
+ * Wraps a wagmi connector so its `getProvider` returns a guarded provider
+ * (policy plus analytics) while keeping event subscriptions intact. The chainId
+ * is resolved once and updated on `chainChanged`, with no RPC round trip per
+ * getProvider. The types come from `@wagmi/core` (an optional peer, needed only
+ * for this helper).
  *
- * ⚠️ Оборачивается ТОЛЬКО переданный коннектор — обернуть то, чего вызывающий
- * не создавал, эта функция не может. А wagmi создаёт коннекторы сам: при
- * `multiInjectedProviderDiscovery` (дефолт — `true`) он заводит по коннектору на
- * каждый кошелёк, объявившийся через EIP-6963, и дописывает их в
- * `config.connectors` мимо любых обёрток — в том числе позже, по подписке на
- * новые объявления. Отправка через такой коннектор уходит в кошелёк без гейта.
+ * ⚠️ ONLY the connector passed in is wrapped — this function cannot wrap what
+ * the caller never created. And wagmi creates connectors itself: with
+ * `multiInjectedProviderDiscovery` (default `true`) it adds one connector per
+ * wallet announced over EIP-6963 and appends them to `config.connectors`
+ * bypassing any wrapper — including later, through its subscription to new
+ * announcements.
+ * A send through such a connector reaches the wallet ungated.
  *
- * Один необёрнутый вход сводит гейт к необязательному: пользователю достаточно
- * выбрать соседний пункт в меню подключения. Поэтому автопоиск выключают, а
- * список кошельков задают явно — каждый через свою обёртку:
+ * One unwrapped entry makes the gate optional: the user need only pick the
+ * neighbouring item in the connect menu. So discovery is turned off and the list
+ * of wallets is given explicitly, each through its own wrapper:
  *
  *   createConfig({
  *     connectors: [
@@ -37,13 +39,13 @@ interface EventfulProvider extends Eip1193Provider {
  *     multiInjectedProviderDiscovery: false,
  *   })
  *
- * Дедуп по `rdns` (wagmi пропускает найденный кошелёк, если такой rdns уже есть
- * в списке) закрыть эту дыру не помогает: у `injected()` поля `rdns` нет, так
- * что совпасть нечему.
+ * Deduplication by `rdns` (wagmi skips a discovered wallet if that rdns is
+ * already in the list) does not close this hole: `injected()` has no `rdns`
+ * field, so there is nothing to match.
  *
- * ⚠️ Коннектор, реализующий необязательный `getClient()`, не гейтится в
- * принципе: wagmi в этом случае не вызывает `getProvider`. Такой коннектор
- * отвергается на месте — см. `assertGateable`.
+ * ⚠️ A connector implementing the optional `getClient()` cannot be gated at all:
+ * in that case wagmi never calls `getProvider`. Such a connector is rejected on
+ * the spot — see `assertGateable`.
  */
 export function haiaConnector(
   connectorFn: CreateConnectorFn,
@@ -81,28 +83,29 @@ export function haiaConnector(
 }
 
 /**
- * Коннектор с собственным `getClient` этой обёрткой не гейтится — и молчать об
- * этом нельзя.
+ * A connector with its own `getClient` is not gated by this wrapper — and that
+ * cannot be passed over in silence.
  *
- * `getConnectorClient` в `@wagmi/core` устроен так:
+ * `getConnectorClient` in `@wagmi/core` is written like this:
  *
  *   if (connector.getClient) return connector.getClient({ chainId })
- *   // иначе — getProvider() + custom(provider)
+ *   // otherwise — getProvider() + custom(provider)
  *
- * То есть у такого коннектора `getProvider` не вызывается вовсе, и подмена
- * провайдера — единственное, что мы делаем, — не наступает ни разу. Отправка
- * ушла бы в кошелёк без единого вызова `/evaluate`.
+ * So for such a connector `getProvider` is never called, and replacing the
+ * provider — the only thing we do — never happens. The send would reach the
+ * wallet without a single `/evaluate` call.
  *
- * Молча починить нельзя. Убрать `getClient` из обёртки, чтобы wagmi свалился на
- * гейченный `getProvider`, — значит подменить клиент кошелька на дефолтный: для
- * smart-account коннекторов это потеря их собственных действий (ERC-4337 и
- * прочее), то есть тихая поломка отправки. Обернуть уже собранный viem Client
- * тоже нельзя: его действия связаны с исходным `request` в момент создания, и
- * подмена `.request` на копии их не затрагивает.
+ * It cannot be fixed silently. Dropping `getClient` from the wrapper so wagmi
+ * falls back to the gated `getProvider` would swap the wallet's client for the
+ * default one: for smart-account connectors that loses their own actions
+ * (ERC-4337 and the rest), which is a silent break of sending. Wrapping an
+ * already-built viem Client is no good either: its actions are bound to the
+ * original `request` at creation, and replacing `.request` on a copy does not
+ * touch them.
  *
- * Поэтому — явный отказ на этапе сборки конфига, а не сюрприз в проде. Такому
- * коннектору нужен гейт уровня действия: `client.guard(facts)` перед вызовом
- * кошелька.
+ * Hence an explicit refusal while the config is being built, rather than a
+ * surprise in production. Such a connector needs an action-level gate:
+ * `client.guard(facts)` before the wallet call.
  */
 function assertGateable(connector: Connector): void {
   if (typeof (connector as { getClient?: unknown }).getClient !== 'function') return

@@ -6,44 +6,47 @@ const ANON_KEY = 'haia.anonymous_id'
 const USER_KEY = 'haia.user_id'
 
 /**
- * Имена ключей идентичности в `meta`. Единственное место, где они записаны
- * литералами: те же имена сервер читает при записи события, поэтому
- * расхождение не ломает запрос, а тихо делает строку невидимой для аналитики.
+ * The names of the identity keys in `meta`. The one place they are written as
+ * literals: the server reads the same names when it writes the event, so a
+ * disagreement does not break the request — it quietly makes the row invisible
+ * to analytics.
  */
 export const IDENTITY_META_KEYS = ['userId', 'anonymousId'] as const
 
 /**
- * Источник идентичности для конверта — ровно то, что нужно горячему пути.
+ * The identity source for the envelope — exactly what the hot path needs.
  *
- * Policy-клиент зависит от этого интерфейса, а не от класса `Identity`: ему
- * нужен снимок, а не хранилище. Заодно это делает выразимым случай «источник
- * не дал ничего» — сам `Identity` его не порождает (см. `fallback`), но
- * подмешивание обязано его переживать: партнёр волен подставить свой источник,
- * и конверт всё равно должен уйти, а не упасть на денежном пути.
+ * The policy client depends on this interface rather than on the `Identity`
+ * class: it needs a snapshot, not a store. It also makes "the source gave us
+ * nothing" expressible — `Identity` itself never produces that case (see
+ * `fallback`), but attaching has to survive it: an integrator may plug in
+ * their own source, and the envelope must still go out rather than fail on the
+ * money path.
  */
 export interface IdentitySource {
   meta(): IdentityMeta
 }
 
 /**
- * Identity: anonymous_id ↔ user_id ↔ wallet address. Адрес как identity.
+ * Identity: anonymous_id ↔ user_id ↔ wallet address. The address is the
+ * identity.
  *
- * Один экземпляр на клиента, и это существенно: и горячий путь (конверт
- * `guard()`), и холодный (события аналитики) берут `anonymousId` отсюда, а
- * сервер стыкует «намерение → вердикт → исполнение» именно по нему. Две копии
- * с разными значениями не сломали бы ни один запрос — просто воронка перестала
- * бы склеиваться.
+ * One instance per client, and that matters: both the hot path (the `guard()`
+ * envelope) and the cold one (analytics events) take `anonymousId` from here,
+ * and the server stitches intent → verdict → execution together on it. Two
+ * copies holding different values would break no request at all — the funnel
+ * would simply stop joining up.
  */
 export class Identity implements IdentitySource {
   /**
-   * Теневое значение на случай, когда запись в storage провалилась (квота,
-   * приватный режим). Держит id стабильным в пределах сессии: без него каждый
-   * вызов генерировал бы новый, и горячий путь разошёлся бы с холодным ровно
-   * там, где их нужно склеить.
+   * A shadow value for when a write to storage failed (quota, private mode).
+   * It keeps the id stable within the session: without it every call would
+   * generate a new one, and the hot path would diverge from the cold one
+   * exactly where the two have to be joined.
    *
-   * Заполняется ТОЛЬКО когда `storage.set` бросил, и очищается, как только
-   * запись прошла. Иначе оно затеняло бы storage и после того, как тот снова
-   * заработал, — в том числе правки из соседних вкладок.
+   * It is populated ONLY when `storage.set` threw, and cleared as soon as a
+   * write succeeds. Otherwise it would keep shadowing storage after storage
+   * started working again — including edits from other tabs.
    */
   private fallback = new Map<string, string>()
 
@@ -57,7 +60,7 @@ export class Identity implements IdentitySource {
     return id
   }
 
-  /** Связывает пользователя (user_id / адрес кошелька) с anonymous_id. */
+  /** Links the user (user_id / wallet address) to the anonymous_id. */
   setUserId(userId: string): void {
     this.write(USER_KEY, userId)
   }
@@ -67,9 +70,9 @@ export class Identity implements IdentitySource {
   }
 
   /**
-   * Снимок для подмешивания в `meta` конверта. Не бросает никогда: гейт стоит
-   * на денежном пути, и падать из-за формы конверта нельзя — отсутствующая
-   * идентичность это неполные цифры, а не отказ.
+   * The snapshot attached to the envelope's `meta`. Never throws: the gate sits
+   * on the money path and must not fail over envelope shape — missing identity
+   * means incomplete numbers, not a refusal.
    */
   meta(): IdentityMeta {
     const anonymousId = this.tryAnonymousId()
@@ -89,20 +92,21 @@ export class Identity implements IdentitySource {
   }
 
   /**
-   * Теневое значение имеет приоритет над storage, и порядок здесь — не
-   * стилистика.
+   * The shadow value takes priority over storage, and the order here is not a
+   * matter of taste.
    *
-   * Оно непусто только когда запись провалилась, то есть в нём лежит наше
-   * последнее намерение, а в storage — то, что было до него. Прочитай мы
-   * сначала storage, `setUserId` после переполненной квоты не вступил бы в
-   * силу никогда: пользователь сменил кошелёк, а конверты и события продолжали
-   * бы ехать со старым `userId` — чужая атрибуция денежных действий и чужие
-   * строки под запрос на стирание.
+   * It is non-empty only when a write failed, which means it holds our latest
+   * intent while storage holds what came before it. Were storage read first,
+   * `setUserId` after a quota overflow would never take effect: the user
+   * switches wallets, and envelopes and events keep going out under the old
+   * `userId` — money actions attributed to the wrong person and rows the wrong
+   * erasure request would reach.
    *
-   * В обычном же случае fallback пуст, и читается storage — поэтому правка из
-   * соседней вкладки по-прежнему видна.
+   * In the normal case the fallback is empty and storage is read, so an edit
+   * from another tab is still visible.
    *
-   * Чтение не должно ронять вызывающего: недоступный storage — не авария.
+   * Reading must not bring the caller down: unavailable storage is not an
+   * outage.
    */
   private read(key: string): string | null {
     const pending = this.fallback.get(key)
@@ -115,14 +119,16 @@ export class Identity implements IdentitySource {
   }
 
   /**
-   * Запись подтверждается чтением, и это не паранойя: хранилище умеет не
-   * только бросать, но и молча не сохранять — так ведёт себя заглушка
-   * `{ get: () => null, set: () => {} }`, которую партнёр ставит, чтобы ничего
-   * не персистить. Поверь мы `set` на слово, `anonymousId` генерировался бы
-   * заново на каждый вызов, и горячий путь разошёлся бы с холодным — без
-   * единой ошибки, просто воронка перестала бы склеиваться.
+   * A write is confirmed by reading it back, and that is not paranoia: storage
+   * can not only throw but also silently drop a write — which is exactly what
+   * the stub `{ get: () => null, set: () => {} }` does when an integrator
+   * installs it to persist nothing. Were `set` taken at its word,
+   * `anonymousId` would be regenerated on every call and the hot path would
+   * diverge from the cold one — with no error anywhere, the funnel would just
+   * stop joining up.
    *
-   * Цена — одно лишнее чтение на запись, а записей за сессию единицы.
+   * The cost is one extra read per write, and there are only a handful of
+   * writes per session.
    */
   private write(key: string, value: string): void {
     try {
@@ -132,10 +138,10 @@ export class Identity implements IdentitySource {
         return
       }
     } catch {
-      // Проваливаемся в теневое значение — как и при неподтверждённой записи.
+      // Fall through to the shadow value, same as for an unconfirmed write.
     }
-    // Не сохранится между перезагрузками — но в этой сессии значение живёт
-    // здесь, и обе стороны воронки видят одно и то же.
+    // It will not survive a reload — but within this session the value lives
+    // here, and both sides of the funnel see the same one.
     this.fallback.set(key, value)
   }
 }

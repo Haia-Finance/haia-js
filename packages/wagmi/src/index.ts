@@ -2,12 +2,12 @@ import type { HaiaClient } from '@haia/core'
 import { type Eip1193Provider, wrapEip1193Provider } from '@haia/evm'
 
 /**
- * Низкоуровневый враппер EIP-1193 provider — подходит любому кошельку, который
- * экспонирует provider (включая injected). Для идиоматичного viem см.
- * `haiaTransport`; для wagmi — `haiaConnector` из `@haia/wagmi/connector`.
+ * A low-level EIP-1193 provider wrapper — suitable for any wallet that exposes
+ * a provider (injected included). For idiomatic viem see `haiaTransport`; for
+ * wagmi, `haiaConnector` from `@haia/wagmi/connector`.
  *
- * `chainId` можно передать резолвером (`() => number`), чтобы контекст следовал
- * за текущей сетью кошелька.
+ * `chainId` can be passed as a resolver (`() => number`) so the context follows
+ * the wallet's current network.
  *
  *   const provider = haiaWrapProvider(walletProvider, client, chainId)
  *   createWalletClient({ transport: custom(provider) })

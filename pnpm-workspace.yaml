@@ -1,20 +1,21 @@
 packages:
   - packages/*
   - tooling/*
-  # Запускаемые примеры. Приватные, не публикуются — потребляют пакеты ровно
-  # так же, как это делает внешний проект: через workspace-линк.
+  # Runnable examples. Private, never published — they consume the packages
+  # exactly the way an external project does: through a workspace link.
   - examples/*
-  # Вложенные examples/playground ВНУТРИ пакетов — не воркспейсы. Негативные
-  # паттерны идут после позитивных, поэтому `examples/*` выше уцелеет.
+  # Nested examples/playground dirs INSIDE packages are not workspaces. Negative
+  # patterns come after positive ones, so `examples/*` above survives.
   - '!packages/**/examples/**'
   - '!**/playground/**'
 
-# Supply-chain гигиена: пакет встраивается в кошельки и трогает транзакции.
-# Карантин свежих версий зависимостей (минуты); не даём подхватить только что
-# опубликованную (потенциально скомпрометированную) версию.
+# Supply-chain hygiene: these packages get embedded in wallets and touch
+# transactions. Fresh dependency versions are quarantined (in minutes) so a
+# just-published — and possibly compromised — version is not picked up.
 minimumReleaseAge: 1440
 
-# Единый источник правды по версиям общих зависимостей. В пакетах: "viem": "catalog:".
+# The single source of truth for shared dependency versions. In a package:
+# "viem": "catalog:".
 catalog:
   typescript: ^5.8.3
   tsup: ^8.3.5

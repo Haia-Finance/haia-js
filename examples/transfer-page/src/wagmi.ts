@@ -5,33 +5,34 @@ import { injected } from 'wagmi/connectors'
 import { haia } from './haia'
 
 /**
- * Тестовые сети намеренно: пример публичный и запускается незнакомым человеком
- * с реальным кошельком. Механика гейта от сети не зависит — чтобы посмотреть
- * на mainnet, достаточно поменять этот список и transports ниже.
+ * Testnets on purpose: the example is public and gets opened by people with
+ * real wallets. Gating does not depend on the network — to look at mainnet,
+ * change this list and the transports below.
  */
 export const chains = [sepolia, baseSepolia, arbitrumSepolia] as const
 
 /**
- * Вся интеграция — одна обёртка вокруг коннектора.
+ * The whole integration is one wrapper around the connector.
  *
- * `haiaConnector` подменяет у коннектора только `getProvider`: наружу уходит
- * тот же EIP-1193 провайдер, но `eth_sendTransaction` (и остальные методы из
- * `GATED_METHODS`) сперва проходят через policy. Поэтому ниже по коду ничего
- * не меняется — `useSendTransaction` остаётся обычным wagmi-хуком, и удалить
- * гейт из приложения можно, сняв ровно эту обёртку.
+ * `haiaConnector` replaces only `getProvider` on the connector: what comes out
+ * is the same EIP-1193 provider, except that `eth_sendTransaction` (and the
+ * other methods in `GATED_METHODS`) pass through policy first. So nothing
+ * downstream changes — `useSendTransaction` stays an ordinary wagmi hook, and
+ * the gate can be removed from the application by deleting this one wrapper.
  *
- * chainId коннектор резолвит из провайдера сам и обновляет по `chainChanged`,
- * так что смена сети в кошельке доезжает до фактов без нашего участия.
+ * The connector resolves chainId from the provider itself and updates it on
+ * `chainChanged`, so switching networks in the wallet reaches the facts with no
+ * involvement from us.
  */
 export const wagmiConfig = createConfig({
   chains,
   connectors: [haiaConnector(injected(), haia)],
-  // ВАЖНО, и это не про пример, а про любую интеграцию: wagmi по умолчанию
-  // сам добавляет коннекторы, найденные через EIP-6963. Они создаются
-  // конфигом, а не нашим кодом, — значит, мимо обёртки, и отправка через такой
-  // коннектор ушла бы в кошелёк без гейта. Один необёрнутый коннектор в списке
-  // сводит гейт к необязательному: пользователь просто выбирает второй.
-  // Поэтому автопоиск выключен, а список коннекторов задан явно.
+  // IMPORTANT, and this is about any integration rather than this example: by
+  // default wagmi adds connectors it discovers over EIP-6963 itself. They are
+  // created by the config rather than by our code — that is, around the wrapper
+  // — and a send through such a connector would reach the wallet ungated. One
+  // unwrapped connector in the list makes the gate optional: the user simply
+  // picks the other one. So discovery is off and the connector list is explicit.
   multiInjectedProviderDiscovery: false,
   transports: {
     [sepolia.id]: http(),

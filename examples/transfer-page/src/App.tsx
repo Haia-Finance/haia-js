@@ -14,7 +14,7 @@ import { useInjectedWalletName } from './injected-wallet'
 import { PolicyNotices, WireLog } from './panels'
 import { chains } from './wagmi'
 
-/** Исход нажатия Send. Блокировка политикой — отдельный случай, не «ошибка». */
+/** The outcome of pressing Send. A policy block is its own case, not an "error". */
 type SendResult =
   | { kind: 'idle' }
   | { kind: 'pending' }
@@ -35,8 +35,8 @@ export function App() {
   const [amount, setAmount] = useState('')
   const [result, setResult] = useState<SendResult>({ kind: 'idle' })
 
-  // Адрес кошелька как identity: связывает анонимную сессию страницы с
-  // пользователем, и последующие события холодного пути едут уже с userId.
+  // The wallet address as identity: it links the page's anonymous session to
+  // a user, and later cold-path events carry the userId.
   useEffect(() => {
     if (address) haia.identify(address)
   }, [address])
@@ -49,13 +49,14 @@ export function App() {
     if (value === null || !isAddress(to)) return
     setResult({ kind: 'pending' })
     try {
-      // Обычный wagmi-вызов. Гейт стоит ниже, в провайдере коннектора, и
-      // добавляет к нему ровно один исход — HaiaPolicyError вместо транзакции.
+      // An ordinary wagmi call. The gate sits below it, in the connector
+      // provider, and adds exactly one outcome — HaiaPolicyError instead of a
+      // transaction.
       const hash = await sendTransactionAsync({ to: to as Address, value })
       setResult({ kind: 'sent', hash })
     } catch (err) {
-      // Голый `instanceof` не годится: viem заворачивает ошибку провайдера в
-      // свою, и блок оказывается в цепочке `cause`.
+      // A bare `instanceof` is no good: viem wraps the provider error in one of
+      // its own, leaving the block in the `cause` chain.
       const blocked = asHaiaPolicyError(err)
       if (blocked) {
         setResult({ kind: 'blocked', reasons: blocked.reasons, decisionId: blocked.decisionId })
@@ -70,19 +71,19 @@ export function App() {
       <header className="head">
         <h1>Transfer</h1>
         <p className="sub">
-          Обычная страница перевода на wagmi. Единственное отличие — коннектор обёрнут в{' '}
-          <code>haiaConnector</code>, поэтому каждая отправка сперва проходит через policy.
+          An ordinary wagmi transfer page. The only difference is that the connector is wrapped in{' '}
+          <code>haiaConnector</code>, so every send goes through policy first.
         </p>
         <Target />
       </header>
 
       <ol className="steps">
-        <Step n={1} title="Подключить кошелёк" done={isConnected}>
+        <Step n={1} title="Connect a wallet" done={isConnected}>
           {isConnected ? (
             <div className="row">
               <code className="mono">{address}</code>
               <button type="button" className="ghost" onClick={() => disconnect()}>
-                Отключить
+                Disconnect
               </button>
             </div>
           ) : (
@@ -97,23 +98,21 @@ export function App() {
                   {walletName ?? connector.name}
                 </button>
               ))}
-              {connectors.length === 0 && (
-                <p className="hint">Инжектированный кошелёк не найден.</p>
-              )}
+              {connectors.length === 0 && <p className="hint">No injected wallet found.</p>}
             </div>
           )}
           {connectError && <p className="err">{connectError.message}</p>}
         </Step>
 
-        <Step n={2} title="Выбрать сеть" done={isConnected}>
+        <Step n={2} title="Pick a network" done={isConnected}>
           <div className="row">
             {chains.map((chain) => (
               <button
                 key={chain.id}
                 type="button"
-                // До подключения wagmi отдаёт первую сеть конфига, а не выбор
-                // пользователя — подсвечивать её значило бы показать решение,
-                // которого он не принимал.
+                // Before connecting, wagmi reports the first network in the config
+                // rather than the user's choice — highlighting it would show a
+                // decision they never made.
                 className={isConnected && chain.id === chainId ? 'pill on' : 'pill'}
                 disabled={!isConnected || isSwitching}
                 onClick={() => switchChain({ chainId: chain.id })}
@@ -123,12 +122,12 @@ export function App() {
             ))}
           </div>
           <p className="hint">
-            Сеть уезжает в факты как CAIP-2 — <code>eip155:{chainId}</code>. Правила пишутся на неё,
-            а не на имя сети.
+            The network goes into the facts as CAIP-2 — <code>eip155:{chainId}</code>. Rules are
+            written against that, not against the network name.
           </p>
         </Step>
 
-        <Step n={3} title="Адрес получателя" done={recipientOk}>
+        <Step n={3} title="Recipient address" done={recipientOk}>
           <input
             id="recipient"
             className={to === '' || recipientOk ? 'input mono' : 'input mono bad'}
@@ -137,10 +136,12 @@ export function App() {
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
-          {to !== '' && !recipientOk && <p className="err">Не похоже на адрес EVM.</p>}
+          {to !== '' && !recipientOk && (
+            <p className="err">That does not look like an EVM address.</p>
+          )}
         </Step>
 
-        <Step n={4} title="Сумма" done={value !== null}>
+        <Step n={4} title="Amount" done={value !== null}>
           <div className="row">
             <input
               id="amount"
@@ -153,12 +154,13 @@ export function App() {
             <span className="unit">{nativeSymbol(chainId)}</span>
           </div>
           <p className="hint">
-            В фактах сумма едет двумя формами: человекочитаемой <code>amount</code> и minor units{' '}
-            <code>amountRaw</code>. Обе — строками, float на денежном пути запрещён.
+            The facts carry the amount in two forms: the human-readable <code>amount</code> and
+            minor units <code>amountRaw</code>. Both as strings — floats are forbidden on the money
+            path.
           </p>
         </Step>
 
-        <Step n={5} title="Отправить" done={result.kind === 'sent'}>
+        <Step n={5} title="Send" done={result.kind === 'sent'}>
           <button
             type="button"
             className="primary"
@@ -167,7 +169,7 @@ export function App() {
               void send()
             }}
           >
-            {result.kind === 'pending' ? 'Проверяем политику…' : 'Send'}
+            {result.kind === 'pending' ? 'Checking policy…' : 'Send'}
           </button>
           <Outcome result={result} />
         </Step>
@@ -183,9 +185,9 @@ function Target() {
   if (!isConfigured) {
     return (
       <p className="err">
-        Не заданы <code>VITE_HAIA_PROJECT_ID</code> / <code>VITE_HAIA_PUBLISHABLE_KEY</code>.
-        Скопируйте <code>.env.example</code> в <code>.env.local</code> — без ключей control plane
-        ответит 401, и SDK применит fail-mode.
+        <code>VITE_HAIA_PROJECT_ID</code> / <code>VITE_HAIA_PUBLISHABLE_KEY</code> are not set. Copy
+        <code>.env.example</code> to <code>.env.local</code> — without keys the control plane
+        answers 401 and the SDK applies its fail-mode.
       </p>
     )
   }
@@ -201,21 +203,21 @@ function Outcome({ result }: { result: SendResult }) {
   if (result.kind === 'sent') {
     return (
       <p className="ok">
-        Отправлено: <code className="mono">{result.hash}</code>
+        Sent: <code className="mono">{result.hash}</code>
       </p>
     )
   }
   if (result.kind === 'blocked') {
     return (
       <div className="blocked">
-        <strong>Заблокировано политикой</strong>
+        <strong>Blocked by policy</strong>
         <p>
-          Причины: {result.reasons.length > 0 ? result.reasons.join(', ') : '—'} · decision{' '}
+          Reasons: {result.reasons.length > 0 ? result.reasons.join(', ') : '—'} · decision{' '}
           <code className="mono">{result.decisionId}</code>
         </p>
         <p className="hint">
-          Транзакция в кошелёк не ушла: гейт стоит до подписи, поэтому окно на подтверждение даже не
-          открылось.
+          The transaction never reached the wallet: the gate sits before the signature, so the
+          confirmation window never even opened.
         </p>
       </div>
     )
@@ -246,7 +248,7 @@ function Step({
   )
 }
 
-/** Пустая строка и мусор — не ноль, а «суммы ещё нет»: Send остаётся выключен. */
+/** An empty string or junk is not zero but "no amount yet": Send stays disabled. */
 function parseAmount(input: string): bigint | null {
   const trimmed = input.trim()
   if (trimmed === '') return null
