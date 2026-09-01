@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Имя инжектированного кошелька для подписи кнопки.
+ * The name of the injected wallet, for the button label.
  *
- * Коннектор у нас один — `injected()`, он работает с `window.ethereum`, и его
- * `name` так и остаётся «Injected». Для подписи это плохо: человек видит
- * «Injected», не находит MetaMask и решает, что его кошелёк не поддержан, хотя
- * это ровно он и есть.
+ * There is one connector — `injected()` — it talks to `window.ethereum`, and
+ * its `name` stays "Injected". That is a poor label: a person sees "Injected",
+ * fails to find MetaMask and concludes their wallet is unsupported, when it is
+ * in fact exactly the one being used.
  *
- * Спрашиваем имя по EIP-6963 — тому же стандарту, автопоиск по которому мы в
- * `wagmi.ts` осознанно выключили. Противоречия нет: там речь про то, кто
- * СОЗДАЁТ коннекторы (только мы, иначе появится негейченный вход), здесь — про
- * подпись к уже созданному. Объявления только читаются.
+ * The name is asked for over EIP-6963 — the same standard whose discovery is
+ * deliberately turned off in `wagmi.ts`. There is no contradiction: that is
+ * about who CREATES connectors (only we do, or an ungated entry appears), this
+ * is about labelling one that already exists. The announcements are only read.
  *
- * Сниффинг флагов (`ethereum.isMetaMask` и родня) не годится: кошельки ставят
- * чужие флаги, чтобы их принимали за MetaMask, — подпись врала бы. EIP-6963
- * имя приходит от самого кошелька.
+ * Sniffing flags (`ethereum.isMetaMask` and relatives) is no good: wallets set
+ * each other's flags to be taken for MetaMask, so the label would lie. Over
+ * EIP-6963 the name comes from the wallet itself.
  */
 
 interface Eip6963Detail {
@@ -35,14 +35,14 @@ export function useInjectedWalletName(): string | undefined {
     window.addEventListener('eip6963:announceProvider', onAnnounce)
     window.dispatchEvent(new Event('eip6963:requestProvider'))
 
-    // Объявления приходят синхронно на requestProvider, но кошелёк может
-    // ответить и позже (медленная инициализация расширения) — поэтому читаем
-    // результат в макротаске, а не сразу.
+    // Announcements arrive synchronously on requestProvider, but a wallet may
+    // also answer later (slow extension startup), so the result is read in a
+    // macrotask rather than immediately.
     const timer = setTimeout(() => {
       const injected = (globalThis as { ethereum?: unknown }).ethereum
-      // Матчим по идентичности провайдера: подписать нужно именно тот кошелёк,
-      // с которым будет работать коннектор. Если объявившийся ровно один —
-      // берём его: он и занял window.ethereum.
+      // Match on provider identity: the label must name the wallet the connector
+      // will actually work with. If exactly one announced itself, take it — that
+      // is the one occupying window.ethereum.
       const match =
         found.find((d) => d.provider === injected) ?? (found.length === 1 ? found[0] : undefined)
       setName(match?.info.name)

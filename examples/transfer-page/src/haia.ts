@@ -4,16 +4,16 @@ import { createLogStore } from './store'
 import { observingFetch } from './wire-log'
 
 /**
- * Клиент Haia. Один на приложение и создаётся прямо на модуле: конструктор
- * чистый — ни сетевых вызовов, ни `init()`, — поэтому его не нужно тащить в
- * React-стейт и он безопасен при SSR.
+ * The Haia client. One per application, created at module level: the
+ * constructor is pure — no network calls, no `init()` — so it does not need to
+ * live in React state and is safe under SSR.
  */
 
 function env(name: string): string | undefined {
   const value = import.meta.env[name]
-  // Незаданная переменная приезжает из Vite пустой строкой, а не undefined.
-  // Разница существенна: `baseUrl: ''` — это не «взять дефолт», а пустой хост,
-  // и запросы молча ушли бы на origin самой страницы.
+  // An unset variable arrives from Vite as an empty string, not undefined.
+  // The difference matters: `baseUrl: ''` does not mean "take the default", it
+  // means an empty host, and the requests would silently go to the page origin.
   return typeof value === 'string' && value !== '' ? value : undefined
 }
 
@@ -21,12 +21,12 @@ export const projectId = env('VITE_HAIA_PROJECT_ID') ?? ''
 export const publishableKey = env('VITE_HAIA_PUBLISHABLE_KEY') ?? ''
 export const baseUrl = env('VITE_HAIA_BASE_URL')
 
-/** Без ключей отправлять нечего — страница скажет это явно, а не 401-ом в консоли. */
+/** With no keys there is nothing to send — the page says so, rather than leaving a 401 in the console. */
 export const isConfigured = projectId !== '' && publishableKey !== ''
 
 const latencyBudget = Number(env('VITE_HAIA_LATENCY_BUDGET_MS') ?? Number.NaN)
 
-/** Уведомление от политики — то, что партнёр в проде показал бы пользователю. */
+/** A notice from policy — what an integrator would show the user in production. */
 export interface PolicyNotice {
   at: number
   decision: Verdict['decision']
@@ -53,18 +53,21 @@ export const haia = createHaiaClient({
   baseUrl,
   latencyBudgetMs: Number.isFinite(latencyBudget) ? latencyBudget : undefined,
   environment: 'example',
-  // `runtime` — штатная точка инъекции. Здесь через неё подключён журнал wire-
-  // вызовов страницы (`wire-log.ts`); в проде подменять fetch не нужно.
+  // `runtime` is the supported injection point. Here it carries the page's
+  // wire-call log (`wire-log.ts`); in production there is no need to replace
+  // fetch.
   runtime: { fetch: observingFetch(globalThis.fetch.bind(globalThis)) },
-  // `flagged` — единственный исход, о котором иначе не узнать: действие
-  // проходит, ошибки нет, вердикт горячий, а последствие холодное. Без хука
-  // партнёр не отличил бы его от обычного approved.
+  // `flagged` is the one outcome there is no other way to learn about: the
+  // action proceeds, there is no error, the verdict is hot and the consequence
+  // is cold. Without the hook an integrator could not tell it from a plain
+  // approved.
   onFlagged: (verdict, facts) => {
     policyNotices.push(notice(verdict, facts))
   },
-  // `rejected` дублируется в `HaiaPolicyError`, и на месте отправки его ловить
-  // удобнее — там исход привязан к конкретному нажатию Send. Хук нужен для
-  // глобального UI (тост, баннер), поэтому показан здесь тоже.
+  // `rejected` is duplicated in `HaiaPolicyError`, and catching it at the send
+  // site is more convenient — there the outcome is tied to a specific press of
+  // Send. The hook is for global UI (a toast, a banner), so it is shown here
+  // too.
   onBlocked: (verdict, facts) => {
     policyNotices.push(notice(verdict, facts))
   },

@@ -1,14 +1,15 @@
 /**
- * Журнал wire-вызовов — инструмент ЭТОГО примера, а не часть SDK.
+ * The wire-call log is a tool of THIS example, not a part of the SDK.
  *
- * Смысл: показать на странице ровно то, что ушло в control plane и что он
- * ответил. Хуков `onBlocked`/`onFlagged` для этого не хватает — они срабатывают
- * только на `rejected`/`flagged`, а самый частый и самый интересный для сверки
- * контракта случай (`approved` вместе с `reasons`) не виден вообще.
+ * Its purpose is to show on the page exactly what went to the control plane and
+ * what came back. The `onBlocked` / `onFlagged` hooks are not enough for that —
+ * they fire only on `rejected` / `flagged`, and the most common and most
+ * interesting case for checking the contract (`approved` together with
+ * `reasons`) is not visible at all.
  *
- * Подключается через `runtime.fetch` в `HaiaConfig`: ядро не зашивает
- * браузерные API именно затем, чтобы их можно было подменить. Обёртка
- * прозрачна — ответ возвращается вызывающему как есть.
+ * It is wired in through `runtime.fetch` in `HaiaConfig`: the kernel avoids
+ * hardcoding browser APIs precisely so they can be replaced. The wrapper is
+ * transparent — the response is returned to the caller untouched.
  */
 import { createLogStore } from './store'
 
@@ -23,7 +24,7 @@ export interface WireCall {
   status: number | null
   response: unknown
   durationMs: number
-  /** Сетевой сбой или таймаут: `status` пуст, и SDK применяет fail-mode. */
+  /** A network failure or timeout: `status` is empty and the SDK applies its fail-mode. */
   error?: string
 }
 
@@ -53,10 +54,11 @@ function urlOf(input: RequestInfo | URL): string {
 }
 
 /**
- * Оборачивает fetch наблюдением. Тело ответа читаем с `res.clone()`: оригинал
- * обязан достаться SDK нетронутым — иначе `res.json()` в policy-клиенте упрётся
- * в уже вычитанный поток, вердикт станет «сервис недоступен», и инструмент
- * наблюдения начнёт менять наблюдаемое.
+ * Wraps fetch with observation. The response body is read from `res.clone()`:
+ * the original has to reach the SDK untouched, or `res.json()` in the policy
+ * client would hit an already-consumed stream, the verdict would become
+ * "service unavailable", and the observing tool would start changing what it
+ * observes.
  */
 export function observingFetch(inner: typeof fetch): typeof fetch {
   return async (input, init) => {
