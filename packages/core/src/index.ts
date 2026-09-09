@@ -4,6 +4,7 @@ export type {
   Decision,
   Facts,
   FailMode,
+  GateErrorCode,
   IdentityMeta,
   TypeKey,
   Verdict,

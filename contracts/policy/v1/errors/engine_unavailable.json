@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "engine_unavailable",
+    "message": "no verdict was reached for this envelope"
+  }
+}

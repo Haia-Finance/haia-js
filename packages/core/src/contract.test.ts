@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { HaiaConfig } from './config'
 import { asClientEventId } from './id'
 import { IDENTITY_META_KEYS, Identity } from './identity/identity'
@@ -35,13 +35,24 @@ interface ContractCase {
   note?: string
 }
 
+/** A published error code: the body, the status it comes with, and whether a retry can help. */
+interface ContractError {
+  file: string
+  status: number
+  code: string
+  retry: boolean
+  note?: string
+}
+
 interface ContractIndex {
   request: { path: string; headers: Record<string, string> }
   cases: ContractCase[]
   verdicts: string[]
+  errors: ContractError[]
   limits: {
     clientEventId: { maxLength: number; charset: string }
     typeKey: { minLength: number; maxLength: number }
+    baseType: { minLength: number; maxLength: number }
   }
 }
 
@@ -54,11 +65,14 @@ function captureRuntime(response: () => Response): {
   runtime: Runtime
   body: () => Record<string, unknown>
   headers: () => Record<string, string>
+  count: () => number
 } {
   let sent: Record<string, unknown> = {}
   let headers: Record<string, string> = {}
+  let calls = 0
   const runtime: Runtime = {
     fetch: (async (_url: string, init: { body?: string; headers?: Record<string, string> }) => {
+      calls += 1
       sent = JSON.parse(init.body ?? '{}')
       headers = init.headers ?? {}
       return response()
@@ -74,7 +88,7 @@ function captureRuntime(response: () => Response): {
     })(),
     now: () => 0,
   }
-  return { runtime, body: () => sent, headers: () => headers }
+  return { runtime, body: () => sent, headers: () => headers, count: () => calls }
 }
 
 /** Identity on the same runtime as the client, as in HaiaClient. */
@@ -87,17 +101,22 @@ describe('the manifest covers every file (no undeclared fixtures)', () => {
   // something that is not part of the artifact — prose belongs to whoever owns
   // the directory it lives in, and prose written elsewhere carries links that
   // do not resolve here.
-  it('holds the manifest and the two fixture directories, nothing else', () => {
+  it('holds the manifest and the three fixture directories, nothing else', () => {
     // Dotfiles are ignored: .DS_Store is a fact about opening the directory in
     // Finder, not about what was vendored, and failing on it would train
     // people to ignore this test.
     const entries = readdirSync(CONTRACT_DIR).filter((name) => !name.startsWith('.'))
-    expect(entries.sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
+    expect(entries.sort()).toEqual(['envelopes', 'errors', 'index.json', 'verdicts'])
   })
 
-  it('every *.json in envelopes/ and verdicts/ is named in index.json', () => {
-    const declared = new Set(['index.json', ...index.cases.map((c) => c.file), ...index.verdicts])
-    for (const dir of ['envelopes', 'verdicts']) {
+  it('every *.json in envelopes/, verdicts/ and errors/ is named in index.json', () => {
+    const declared = new Set([
+      'index.json',
+      ...index.cases.map((c) => c.file),
+      ...index.verdicts,
+      ...index.errors.map((e) => e.file),
+    ])
+    for (const dir of ['envelopes', 'verdicts', 'errors']) {
       for (const name of readdirSync(new URL(`${dir}/`, CONTRACT_URL))) {
         if (name.endsWith('.json')) {
           expect(
@@ -184,6 +203,43 @@ describe('the SDK builds an envelope of valid shape', () => {
   })
 })
 
+describe('baseType — the field the packs guard their rules on', () => {
+  const baseTypeCase = index.cases.find((c) => c.file.includes('with-base-type'))
+
+  it('the manifest declares a baseType case', () => {
+    expect(baseTypeCase, 'index.json lost envelopes/valid-with-base-type.json').toBeDefined()
+    expect(baseTypeCase?.accepted).toBe(true)
+  })
+
+  it('the SDK sends it verbatim, as a fourth top-level key', async () => {
+    const fixture = loadJson(baseTypeCase?.file ?? '') as {
+      clientEventId: string
+      typeKey: string
+      baseType: string
+      meta: Record<string, unknown>
+    }
+    const cap = captureRuntime(
+      () =>
+        new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
+    )
+    const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+    await client.evaluate({
+      clientEventId: asClientEventId(fixture.clientEventId),
+      typeKey: fixture.typeKey,
+      baseType: fixture.baseType,
+      meta: fixture.meta,
+    })
+
+    const body = cap.body()
+    expect(Object.keys(body).sort()).toEqual(['baseType', 'clientEventId', 'meta', 'typeKey'])
+    // Verbatim: nothing derived from the typeKey, because which base type a
+    // pack guards on is the pack's business and a guessed one matches no rule.
+    expect(body.baseType).toBe(fixture.baseType)
+    expect((body.baseType as string).length).toBeLessThanOrEqual(index.limits.baseType.maxLength)
+  })
+})
+
 describe('identity in meta — the key names have not drifted from the contract', () => {
   // The control plane checks its own constants against the same fixture. Were
   // the names to drift apart, no request would fail — the decision record
@@ -242,6 +298,59 @@ describe('the SDK parses the fixture verdicts', () => {
       expect(out.decision).toBe(verdict.decision)
       expect(out.decisionId).toBe(verdict.decisionId)
       if (verdict.reasons) expect(out.reasons).toEqual(verdict.reasons)
+    })
+  }
+})
+
+describe('the SDK answers every published error code', () => {
+  // The manifest publishes the status and the retryability of each code. Both
+  // are behaviour here: an error is never a verdict (nothing judged the
+  // action, so the fail-mode decides and the money action fails closed), and
+  // whether a retry can help is what decides if the client keeps calling.
+  function respondWith(err: { file: string; status: number }): () => Response {
+    const body = JSON.stringify(loadJson(err.file))
+    return () =>
+      new Response(body, { status: err.status, headers: { 'content-type': 'application/json' } })
+  }
+
+  for (const err of index.errors) {
+    it(`${err.code}: a ${err.status} falls back by fail-mode and names the code`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const cap = captureRuntime(respondWith(err))
+      const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+      const verdict = await client.evaluate({
+        clientEventId: asClientEventId('01J9ZQK7X8Y2N4M6P0R3S5T7V9'),
+        typeKey: 'transfer_intent',
+        meta: {},
+      })
+
+      expect(verdict.decision).toBe('rejected')
+      expect(verdict.decisionId).toMatch(/^fallback:/)
+      expect(verdict.reasons).toContain(err.code)
+      warn.mockRestore()
+    })
+
+    it(`${err.code}: retry=${err.retry} — the client ${err.retry ? 'stops calling' : 'keeps calling'}`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const cap = captureRuntime(respondWith(err))
+      const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+      for (let i = 0; i < 8; i++) {
+        await client.evaluate({
+          clientEventId: asClientEventId('01J9ZQK7X8Y2N4M6P0R3S5T7V9'),
+          typeKey: 'sign_message',
+          meta: {},
+        })
+      }
+
+      // Retryable means the engine may recover, so the client gets out of its
+      // way — the breaker, or a backoff. Non-retryable means every call is
+      // answered the same: backing off would hide a configuration error
+      // instead of fixing it.
+      if (err.retry) expect(cap.count()).toBeLessThan(8)
+      else expect(cap.count()).toBe(8)
+      warn.mockRestore()
     })
   }
 })

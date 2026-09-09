@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "engine_error",
+    "message": "policy engine failed (500): no active deployment found for stream x"
+  }
+}

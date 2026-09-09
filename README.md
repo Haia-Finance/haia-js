@@ -51,9 +51,10 @@ The rules:
   required fields, and failing closed over envelope shape on the money path is
   not acceptable.
 
-`clientEventId` stays the stable correlation key. `decisionId` does not: a retry
-re-evaluates the intent from scratch, and the contract declares its stability
-best-effort.
+`clientEventId` stays the stable correlation key, and it is also the key the policy
+engine replays a finished decision by — so a retry of the same intent comes back
+with the same verdict and the same `decisionId`, which is the engine's own execution
+id rather than one the gate minted for it.
 
 ## Examples
 

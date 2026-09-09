@@ -1,0 +1,21 @@
+{
+  "clientEventId": "pol-waas-1f4c8ad20b7e93c15a6d0e42",
+  "typeKey": "stablecoin_transfer",
+  "meta": {
+    "corridor": "US-MX",
+    "asset": "USDC",
+    "network": "polygon",
+    "screening_result": "clear",
+    "risk_score": 55,
+    "amount_usd": 820.5,
+    "user_tier": "standard",
+    "recent_flow_count_24h": 3,
+    "recent_volume_usd_24h": 1420.0,
+    "destination_success_count": 7,
+    "userId": "sim-waas-user-0031",
+    "anonymousId": "sim-waas-anon-0031",
+    "from": "0xAbC0000000000000000000000000000000000031",
+    "to": "0xDeF0000000000000000000000000000000000097",
+    "screen": "send"
+  }
+}

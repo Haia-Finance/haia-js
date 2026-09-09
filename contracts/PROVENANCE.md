@@ -7,14 +7,19 @@ suite is self-contained: the contract test in
 checked out.
 
 - Contract: `policy/evaluate`, version 1
-- Snapshot taken: 2026-08-25
+- Snapshot taken: 2026-09-09
 - Consumer: `packages/core/src/contract.test.ts`
 
 ## What is in the snapshot, and what is not
 
-The snapshot is **data only**: `index.json`, `envelopes/` and `verdicts/`.
-Those are the artifact the two implementations have to agree on, and they are
-expected to match their source byte for byte.
+The snapshot is **data only**: `index.json`, `envelopes/`, `verdicts/` and
+`errors/`. Those are the artifact the two implementations have to agree on, and
+they are expected to match their source byte for byte.
+
+The files are copied verbatim, the notes inside them included. A note that
+points at a document of the source repository is the source's to reword: an
+edit made here would put the snapshot out of step with the artifact it is
+supposed to reproduce, which is the one thing it must not be.
 
 Prose is not vendored. `./README.md` describes what the contract says and is
 written and owned here — so an update to the snapshot never overwrites it, and
@@ -25,9 +30,9 @@ it never carries links or paths that only resolve inside another repository.
 By hand: copy `policy/v1/` from the source wholesale and update the date above.
 A recursive copy is safe — the source keeps its own prose outside that
 directory for exactly this reason — and the contract test asserts the snapshot
-holds nothing but `index.json`, `envelopes/` and `verdicts/`, so anything
-foreign that does arrive fails loudly instead of landing in the repository
-unnoticed.
+holds nothing but `index.json`, `envelopes/`, `verdicts/` and `errors/`, so
+anything foreign that does arrive fails loudly instead of landing in the
+repository unnoticed.
 
 The test then either passes against the new files or names what the SDK has to
 change.

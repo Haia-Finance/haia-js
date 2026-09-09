@@ -108,7 +108,7 @@ describe('guard outcome contract', () => {
       ...base,
       onBlocked,
       onFlagged,
-      runtime: runtimeReturning({ decision: 'approved', reasons: ['not_gated'] }),
+      runtime: runtimeReturning({ decision: 'approved', reasons: [] }),
     })
 
     expect((await client.guard(facts())).decision).toBe('approved')

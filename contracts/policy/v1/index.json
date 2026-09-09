@@ -26,6 +26,11 @@
       "note": "identity keys in meta: userId / anonymousId are convention, never required, and the server lifts them onto the event it writes"
     },
     {
+      "file": "envelopes/valid-with-base-type.json",
+      "accepted": true,
+      "note": "baseType is the engine's event type, forwarded as its `type`; optional there and here"
+    },
+    {
       "file": "envelopes/valid-minimal.json",
       "accepted": true,
       "note": "meta is optional; only clientEventId and typeKey are required"
@@ -34,6 +39,11 @@
       "file": "envelopes/valid-forward-compatible.json",
       "accepted": true,
       "note": "unknown meta keys are stored verbatim; unknown envelope fields are ignored, not rejected"
+    },
+    {
+      "file": "envelopes/valid-waas-stablecoin-transfer.json",
+      "accepted": true,
+      "note": "pack-shaped meta: numeric amounts and a bare chain name, because a rule compares the value it is given — the convention dictionary yields to the pack that reads the key (docs/guides/policy-meta-keys.md)"
     },
     {
       "file": "envelopes/invalid-missing-client-event-id.json",
@@ -73,7 +83,45 @@
   ],
   "verdicts": [
     "verdicts/valid-approved.json",
+    "verdicts/valid-flagged.json",
     "verdicts/valid-rejected.json"
+  ],
+  "errors": [
+    {
+      "file": "errors/not_configured.json",
+      "status": 409,
+      "code": "not_configured",
+      "retry": false,
+      "note": "the workspace has no policy engine tenant — provision it; retrying cannot"
+    },
+    {
+      "file": "errors/engine_error.json",
+      "status": 502,
+      "code": "engine_error",
+      "retry": false,
+      "note": "the policy engine answered an error of its own — an internal failure, or no deployment for this stream in this tenant; its message is relayed in `message`"
+    },
+    {
+      "file": "errors/engine_unavailable.json",
+      "status": 503,
+      "code": "engine_unavailable",
+      "retry": true,
+      "note": "the policy engine did not answer; retry, then apply your own fail-mode"
+    },
+    {
+      "file": "errors/engine_rate_limited.json",
+      "status": 503,
+      "code": "engine_rate_limited",
+      "retry": true,
+      "note": "the policy engine is at capacity; retry with backoff — Retry-After is set when the engine supplied one"
+    },
+    {
+      "file": "errors/engine_rejected_request.json",
+      "status": 500,
+      "code": "engine_rejected_request",
+      "retry": false,
+      "note": "the control plane's payload to the engine was refused — our bug, not yours"
+    }
   ],
   "limits": {
     "clientEventId": {
@@ -91,6 +139,11 @@
     "body": {
       "maxBytes": 262144,
       "note": "transport backstop; exceeding it is 413 payload_too_large, not 422"
+    },
+    "baseType": {
+      "minLength": 1,
+      "maxLength": 128,
+      "note": "optional; omitted means the engine sees no `type`"
     }
   }
 }

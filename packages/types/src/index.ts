@@ -7,11 +7,12 @@
 export type CaipChainId = string
 
 /**
- * The kind of action. On the wire it is an opaque string in the control
- * plane's namespace: the server does not validate it against a closed list,
- * and an unknown key is simply not gated. Closed enums of their own keys are
- * held by the family layers (`@haia/evm` and friends) — that is a detail of
- * their machinery, not of the contract.
+ * The kind of action. On the wire it is an opaque string that names the policy
+ * pack evaluating the action: the server does not validate it against a closed
+ * list, and it does not answer for it either — a key with nothing deployed
+ * behind it comes back as an error, never as a pass. Closed enums of their own
+ * keys are held by the family layers (`@haia/evm` and friends) — that is a
+ * detail of their machinery, not of the contract.
  */
 export type TypeKey = string
 
@@ -73,6 +74,14 @@ export interface IdentityMeta {
 export interface Facts {
   clientEventId: ClientEventId
   typeKey: TypeKey
+  /**
+   * The base event type the pack behind `typeKey` guards on. Optional on the
+   * wire, and omitting it is not an error — but the shipped packs write their
+   * rules as `event.type == "<typeKey>_intent"`, and a rule that matches
+   * nothing leaves the verdict to the pack's own default. Send it whenever the
+   * pack expects one; the SDK forwards it verbatim and invents none.
+   */
+  baseType?: string
   /** Flat, no nesting. */
   meta: Record<string, unknown> & IdentityMeta
 }
@@ -80,17 +89,51 @@ export interface Facts {
 export type Decision = 'approved' | 'rejected' | 'flagged'
 
 /**
- * The resolver's verdict. Never cached: every gate is a real call, and every
- * intent is journalled on the server.
+ * The verdict, as the policy engine reached it: a `200` carries one only
+ * because a pack produced it. Never cached — every gate is a real call, and
+ * every intent is journalled on the server.
  */
 export interface Verdict {
   decision: Decision
-  /** Id of the RESOLVER's decision (not the engine's): the mapping to
-   * individual deciders is internal. */
+  /**
+   * The policy engine's own execution id. `clientEventId` is the idempotency
+   * key the engine is handed, so a retry of the same intent replays the same
+   * decision rather than minting a second one. This is the id a support case
+   * quotes; the key that correlates intent, verdict and execution stays
+   * `clientEventId`.
+   */
   decisionId: string
   /** Machine-readable codes from a documented vocabulary. */
   reasons?: string[]
 }
+
+/**
+ * Why the gate has no verdict to give. Every non-200 carries one of these in
+ * `{"detail": {"code", "message"}}`, and the code — not the status — says what
+ * to do about it: `engine_unavailable` and `engine_rate_limited` share a 503
+ * and mean different things.
+ *
+ * - `not_configured` — the workspace has no policy engine tenant; provision
+ *   it, a retry cannot.
+ * - `engine_error` — the engine failed on its own terms, "no deployment for
+ *   this stream" included; its text is relayed in `message`.
+ * - `engine_unavailable` — the engine did not answer; retry, then apply your
+ *   fail-mode.
+ * - `engine_rate_limited` — the engine is at capacity; back off, honouring
+ *   `Retry-After` when it is set.
+ * - `engine_rejected_request` — the payload sent to the engine was refused;
+ *   not something a caller can fix by retrying.
+ *
+ * The SDK puts the code into `reasons` of the fallback verdict it synthesises,
+ * so a misconfigured stand can be told from an engine outage in an
+ * integrator's own telemetry.
+ */
+export type GateErrorCode =
+  | 'not_configured'
+  | 'engine_error'
+  | 'engine_unavailable'
+  | 'engine_rate_limited'
+  | 'engine_rejected_request'
 
 /** What to do when policy is unavailable: open → proceed, closed → block. */
 export type FailMode = 'open' | 'closed'

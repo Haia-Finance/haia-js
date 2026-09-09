@@ -23,7 +23,8 @@ type ChainIdSource = string | number | (() => string | number)
  * wallet.
  *
  * The client does NOT decide whether an action is gated: everything intercepted
- * goes to the server, and anything ungated gets a fast `approved (not_gated)`.
+ * goes to the server, and a verdict comes back only where a policy pack reached
+ * one. Every other answer is an error code, and the kernel's fail-mode decides.
  */
 export function wrapEip1193Provider(
   provider: Eip1193Provider,

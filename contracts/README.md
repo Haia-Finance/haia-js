@@ -23,7 +23,8 @@ instead of a silently unchecked file.
 policy/v1/index.json                  manifest: case files + expected accept/reject
 policy/v1/envelopes/valid-*.json      must be accepted
 policy/v1/envelopes/invalid-*.json    must be rejected (422)
-policy/v1/verdicts/valid-*.json       response shapes, for decoder tests
+policy/v1/verdicts/valid-*.json       200 response shapes, for decoder tests
+policy/v1/errors/<code>.json          error bodies, one per published error code
 ```
 
 ## The envelope
@@ -32,11 +33,28 @@ Exactly two fields are required — `clientEventId` and `typeKey`. `meta` is fla
 and is not validated: no key is required, none is rejected, and unknown
 top-level fields are tolerated on purpose so additive changes break no one.
 
-An unknown `typeKey` is not an error either. It is a policy outcome —
-`approved` with the reason `not_gated` — not a 422. That is why the invalid
-fixtures are all about envelope *structure*: there is deliberately no fixture
-asserting that a particular `typeKey` or `meta` shape is rejected, because the
-server validates neither.
+The envelope is forwarded to the policy engine in the engine's own names,
+nothing translated in between:
+
+| Envelope | Engine | Meaning |
+| --- | --- | --- |
+| `typeKey` | `stream` | the policy pack that evaluates the action |
+| `baseType` | `type` | the pack's base event type; optional here because it is optional there |
+| `clientEventId` | `id` | the idempotency key |
+| `meta` | `data` | every field the pack's rules read |
+
+`baseType` is optional, and omitting it is not an error — but a pack whose
+rules guard on the event type (`event.type == "<stream>_intent"`, which is how
+the shipped packs are written) matches nothing without it, and the engine
+answers with its own default rather than with a rule's decision. Send it
+whenever the pack behind a `typeKey` expects one.
+
+An unknown `typeKey` is not a 422 either: it is the engine's stream name, and
+the engine is the side that answers for it. A stream with nothing deployed
+behind it comes back as `engine_error` — an error, not a pass. That is why the
+invalid fixtures are all about envelope *structure*: there is deliberately no
+fixture asserting that a particular `typeKey` or `meta` shape is rejected,
+because the server validates neither.
 
 ## Limits
 
@@ -48,6 +66,7 @@ than discover it from a rejection.
 | --- | --- | --- |
 | `clientEventId` | 1–64 chars, `[A-Za-z0-9_-]` | 422 |
 | `typeKey` | 1–128 chars | 422 |
+| `baseType` | 1–128 chars, optional | 422 |
 | `meta` | 65536 bytes serialized | 422 |
 | whole body | 262144 bytes | 413 `payload_too_large` |
 
@@ -62,6 +81,38 @@ transport backstop and cannot say which field was at fault; the `meta` cap
 answers 422 naming the field, which is what makes it legible as a contract
 rule.
 
+## What an answer is
+
+A `200` is the only status that carries a verdict, and a verdict exists only
+because the policy engine produced one: `decision` is its word, `reasons` carry
+the codes its pack emitted, `decisionId` is its execution id. The gate adds
+nothing and suppresses nothing — there is no outcome where an action is waved
+through because no rule looked at it.
+
+A pack that blocks without emitting a code produces `reasons: []`. The block
+still stands; the missing code is a bug in the pack, not a reason to withhold
+the verdict.
+
+Every other status means nothing judged the action, and `code` says what would
+have to change for a verdict to exist:
+
+| Status | `code` | What the caller does |
+| --- | --- | --- |
+| 409 | `not_configured` | the workspace has no policy engine tenant — provision it; a retry cannot |
+| 502 | `engine_error` | the engine failed on its own terms, "no deployment for this stream" included; `message` carries what it said |
+| 503 | `engine_unavailable` | retry, then apply your own fail-mode |
+| 503 | `engine_rate_limited` | retry with backoff; `Retry-After` is set when the engine supplied one |
+| 500 | `engine_rejected_request` | do not retry — the payload sent to the engine was refused |
+
+The body is `{"detail": {"code", "message"}}`; `policy/v1/errors/` carries one
+fixture per code and `index.json` publishes the status and the retryability of
+each. `message` is the diagnostic — for anything the engine answered it is the
+engine's own text — and it is what an integrator needs to see to fix a stand,
+so an SDK should surface it rather than swallow it.
+
+Read the codes, not the status: two of them share `503` and differ in what the
+caller should do about it.
+
 ## Idempotency, precisely
 
 `clientEventId` is the idempotency key. `Idempotency-Key`, when sent, must
@@ -69,16 +120,17 @@ carry the same value — the header exists so proxies and HTTP retry machinery
 can see the key without parsing the body, and a request whose header and body
 disagree is rejected rather than silently resolved in favour of one.
 
-Two guarantees, with different strengths, and it is worth knowing which is
-which:
+What a retry of the same key gets back:
 
-- **The same verdict — exact, while packs are stateless.** A retry re-runs the
-  pipeline; the resolver is a pure function of the envelope, so it agrees with
-  itself.
-- **The same `decisionId` — best effort, and not promised.** Re-running mints a
-  new one. Treat `decisionId` as the id *of an answer*, never as a stable key
-  derived from the request — the stable key is `clientEventId`, which is what
-  correlates an intent with its verdict and later with its execution.
+- **The same decision.** `clientEventId` is handed to the policy engine as its
+  own idempotency key, and the engine replays a decision it has already
+  finished for that key instead of evaluating the envelope a second time. The
+  verdict and its reasons are the ones the first call got.
+- **The same `decisionId`.** It is the engine's execution id, and a replay
+  carries the id the original decision was recorded under rather than a second
+  one that happens to agree. `decisionId` is what a support case quotes;
+  `clientEventId` stays the key that correlates an intent with its verdict and
+  later with its execution.
 
 Journalling is deduplicated by `clientEventId` on a best-effort basis too: the
 server drops a retry it can see, and a race between two of its own writers can
