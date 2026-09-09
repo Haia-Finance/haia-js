@@ -188,11 +188,17 @@ export class PolicyClient {
         body: JSON.stringify({
           clientEventId: facts.clientEventId,
           typeKey: facts.typeKey,
-          // Forwarded verbatim and only when the caller set it. The SDK does
-          // not derive one from the typeKey: which base type a pack guards on
+          // Forwarded verbatim and only when the caller set one. The SDK does
+          // not derive it from the typeKey: which base type a pack guards on
           // is the pack's business, and a guessed value matches no rule just
           // as surely as a missing one.
-          ...(facts.baseType !== undefined ? { baseType: facts.baseType } : {}),
+          //
+          // `!= null` and not `!== undefined`: the field is bounded 1-128 on
+          // the wire, so a null from an untyped caller or an empty string read
+          // out of JSON would be a 422 on envelope shape — and on the money
+          // path that is a transfer blocked over a field the contract calls
+          // optional.
+          ...(facts.baseType != null && facts.baseType !== '' ? { baseType: facts.baseType } : {}),
           meta: this.withIdentity(facts.meta),
         }),
       })
@@ -250,7 +256,7 @@ export class PolicyClient {
         // retry of its own to slow down: shut the gate for as long as the
         // engine asked, so the calls behind this one do not spend their
         // latency budget being throttled.
-        this.breakerOpenUntil = this.runtime.now() + backoffMs(res)
+        this.breakerOpenUntil = Math.max(this.breakerOpenUntil, this.runtime.now() + backoffMs(res))
         this.warnGateError(gate)
         break
       case 'engine_unavailable':
@@ -366,7 +372,12 @@ export class PolicyClient {
 
   private onSuccess(): void {
     this.failures = 0
-    this.breakerOpenUntil = 0
+    // A window the engine asked for is NOT cleared by someone else's success.
+    // Actions are gated concurrently — the EIP-1193 wrapper runs a batch
+    // through `Promise.all` — so a sibling call answering 200 must not put the
+    // client straight back onto an engine that has just refused it. Only a
+    // window that has already run out is cleared.
+    if (this.breakerOpenUntil <= this.runtime.now()) this.breakerOpenUntil = 0
   }
 
   private warnMalformed(): void {
@@ -403,7 +414,12 @@ export class PolicyClient {
   private onFailure(): void {
     this.failures += 1
     if (this.failures >= BREAKER_THRESHOLD) {
-      this.breakerOpenUntil = this.runtime.now() + BREAKER_COOLDOWN_MS
+      // Never shorten a window already open: the ordinary cooldown must not
+      // undercut a longer Retry-After the engine asked for.
+      this.breakerOpenUntil = Math.max(
+        this.breakerOpenUntil,
+        this.runtime.now() + BREAKER_COOLDOWN_MS,
+      )
     }
   }
 }

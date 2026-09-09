@@ -130,6 +130,22 @@ describe('wire contract', () => {
     expect(JSON.parse(calls[1]?.init.body ?? '{}').baseType).toBe('token_approval_intent')
   })
 
+  it('treats a null or empty baseType as no baseType at all', async () => {
+    // The field is bounded 1-128 on the wire. An untyped caller passing null,
+    // or an empty string read out of JSON, would be a 422 on envelope shape —
+    // and on the money path that is a transfer blocked over a field the
+    // contract calls optional.
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ baseType: null as unknown as string }))
+    await client.evaluate(facts({ baseType: '' }))
+
+    for (const call of calls) {
+      expect(Object.keys(JSON.parse(call.init.body ?? '{}'))).not.toContain('baseType')
+    }
+  })
+
   it('sends clientEventId as the Idempotency-Key', async () => {
     const { runtime, calls } = recordingRuntime(() => ok())
     const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
@@ -519,6 +535,35 @@ describe('the gate reached no verdict', () => {
     clock = 60_001
     expect((await client.evaluate(facts({ typeKey: 'sign_message' }))).decision).toBe('approved')
     expect(calls.length).toBe(2)
+    warn.mockRestore()
+  })
+
+  it('keeps a backoff that a concurrent success would otherwise clear', async () => {
+    // Actions are gated concurrently — the EIP-1193 wrapper runs a batch
+    // through Promise.all — so a sibling call answering 200 arrives after the
+    // rate limit has already shut the gate. Letting it reopen the gate would
+    // put the client straight back onto the engine that just refused it.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The sibling's 200 lands AFTER the rate limit: the order that matters, and
+    // the one a real network produces whenever the slower call is the one that
+    // succeeded.
+    const { runtime, calls } = recordingRuntime((n) =>
+      n === 1
+        ? gateError('engine_rate_limited', 503, { headers: { 'retry-after': '30' } })
+        : new Promise<Response>((resolve) => {
+            setTimeout(() => resolve(ok()), 0)
+          }),
+    )
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await Promise.all([
+      client.evaluate(facts({ typeKey: 'sign_message' })),
+      client.evaluate(facts({ typeKey: 'sign_message' })),
+    ])
+    const next = await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(calls.length).toBe(2) // both were already in flight; the third is not
+    expect(next.reasons).toContain('circuit_open')
     warn.mockRestore()
   })
 
