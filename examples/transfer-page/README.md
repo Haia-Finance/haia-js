@@ -90,16 +90,17 @@ your own eyes:
 →
 
 ```json
-{ "decision": "approved", "decisionId": "dec_019ff8dd…", "reasons": ["policy_not_configured"] }
+{ "decision": "approved", "decisionId": "01KZWDXF7M3P8Q2R…", "reasons": [] }
 ```
 
 It shows things the UI does not:
 
 - **`clientEventId` is a ULID**, and it is also the `Idempotency-Key` header and the
   `messageId` of the cold-path event. The server stitches intent, decision and
-  execution together on it, and deduplicates retries by it. `decisionId`, by
-  contrast, will differ on a retry: the server evaluates the intent again, and the
-  contract declares its stability best-effort. The stable key is `clientEventId`.
+  execution together on it, deduplicates retries by it, and hands it to the policy
+  engine as the key a finished decision replays by — so a retry of the same intent
+  comes back with the same verdict and the same `decisionId`. That id is the
+  engine's own execution id, not one the gate minted.
 - **The amount travels in two forms** — `amount` and `amountRaw`, both as strings.
   Floats are not allowed on the money path.
 - **The page never wrote `userId` / `anonymousId`.** The SDK attached them: `userId`
@@ -108,9 +109,14 @@ It shows things the UI does not:
   the server uses to join the intent to its execution.
 - **`/v1/batch` arrives later** than the hot path and in a batch: analytics is
   fire-and-forget and its failure is invisible to the application.
-- **A verdict is never silent about itself**: `reasons` explains why it came out
-  that way. `policy_not_configured` means the project has no policy pack armed;
-  `not_gated` means the action type is not registered.
+- **A verdict is never silent about itself**: `reasons` carries the codes the policy
+  pack emitted, which is what a UI should be built from rather than the prose of a
+  message.
+- **A verdict exists only where a pack reached one.** Everything else is an error
+  with a code of its own — `not_configured`, `engine_error`, `engine_unavailable`,
+  `engine_rate_limited`, `engine_rejected_request` — and the SDK turns it into the
+  same fail-mode fallback as an outage, naming the code in `reasons`. Nothing is
+  waved through on the grounds that no rule looked at it.
 
 ### Fail-closed
 
@@ -168,7 +174,9 @@ the example is public and gets opened by people with real wallets. Gating does n
 depend on the network; to look at mainnet, change `chains` and `transports` in
 [`src/wagmi.ts`](./src/wagmi.ts).
 
-Against a project with no policy pack armed, verdicts are almost always `approved`
-with the reason `policy_not_configured`: a gate with nothing armed does not invent a
-decision, it lets the action through and says why. To see a real `rejected`, arm a
-pack on the project.
+Against a project with no pack deployed for the action's `typeKey`, there is no
+verdict at all: the gate answers `502 engine_error` carrying the engine's own
+sentence, the SDK applies the fail-mode, and Send is blocked exactly as it is
+offline — with the code in `reasons` and the sentence in the console saying which of
+the two it was. To see a real `rejected`, deploy a pack for that action on the
+project.
