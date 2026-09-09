@@ -20,4 +20,4 @@ The keys do **not** become required on the wire: the contract fixes exactly two 
 
 `@haia/types` gains `IdentityMeta` and `@haia/core` exports `IDENTITY_META_KEYS` — the one place the names are written as literals, checked against the contract fixtures by test.
 
-Note on retries: a retry runs the pipeline again. The verdict and `reasons` match, `decisionId` does not — the stable correlation key is `clientEventId`.
+Note on retries: `clientEventId` is the idempotency key, so a retry of the same intent comes back with the same verdict and the same `decisionId`. It stays the key that correlates an intent with its verdict and later with its execution.

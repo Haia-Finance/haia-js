@@ -120,17 +120,17 @@ carry the same value — the header exists so proxies and HTTP retry machinery
 can see the key without parsing the body, and a request whose header and body
 disagree is rejected rather than silently resolved in favour of one.
 
-Two guarantees, with different strengths, and it is worth knowing which is
-which:
+What a retry of the same key gets back:
 
-- **The same verdict — exact, while packs are stateless.** A retry re-runs the
-  pipeline; the resolver is a pure function of the envelope, so it agrees with
-  itself.
-- **The same `decisionId`.** It is the policy engine's own execution id, and
-  `clientEventId` is the idempotency key the gate hands the engine, so a retry
-  replays the original decision rather than minting a second one. `decisionId`
-  is what a support case quotes; `clientEventId` stays the key that correlates
-  an intent with its verdict and later with its execution.
+- **The same decision.** `clientEventId` is handed to the policy engine as its
+  own idempotency key, and the engine replays a decision it has already
+  finished for that key instead of evaluating the envelope a second time. The
+  verdict and its reasons are the ones the first call got.
+- **The same `decisionId`.** It is the engine's execution id, and a replay
+  carries the id the original decision was recorded under rather than a second
+  one that happens to agree. `decisionId` is what a support case quotes;
+  `clientEventId` stays the key that correlates an intent with its verdict and
+  later with its execution.
 
 Journalling is deduplicated by `clientEventId` on a best-effort basis too: the
 server drops a retry it can see, and a race between two of its own writers can

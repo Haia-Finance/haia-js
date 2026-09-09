@@ -109,9 +109,10 @@ It shows things the UI does not:
   the server uses to join the intent to its execution.
 - **`/v1/batch` arrives later** than the hot path and in a batch: analytics is
   fire-and-forget and its failure is invisible to the application.
-- **A verdict is never silent about itself**: `reasons` carries the codes the policy
-  pack emitted, which is what a UI should be built from rather than the prose of a
-  message.
+- **`reasons` carries the codes the policy pack emitted** — build the UI from those
+  rather than from the prose of a message. An approval commonly emits none, as in the
+  response above; an empty list on a *block* means the pack that blocked forgot to
+  emit one.
 - **A verdict exists only where a pack reached one.** Everything else is an error
   with a code of its own — `not_configured`, `engine_error`, `engine_unavailable`,
   `engine_rate_limited`, `engine_rejected_request` — and the SDK turns it into the

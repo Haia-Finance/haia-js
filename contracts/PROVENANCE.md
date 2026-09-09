@@ -16,6 +16,11 @@ The snapshot is **data only**: `index.json`, `envelopes/`, `verdicts/` and
 `errors/`. Those are the artifact the two implementations have to agree on, and
 they are expected to match their source byte for byte.
 
+The files are copied verbatim, the notes inside them included. A note that
+points at a document of the source repository is the source's to reword: an
+edit made here would put the snapshot out of step with the artifact it is
+supposed to reproduce, which is the one thing it must not be.
+
 Prose is not vendored. `./README.md` describes what the contract says and is
 written and owned here — so an update to the snapshot never overwrites it, and
 it never carries links or paths that only resolve inside another repository.
