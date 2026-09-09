@@ -35,13 +35,24 @@ interface ContractCase {
   note?: string
 }
 
+/** A published error code: the body, the status it comes with, and whether a retry can help. */
+interface ContractError {
+  file: string
+  status: number
+  code: string
+  retry: boolean
+  note?: string
+}
+
 interface ContractIndex {
   request: { path: string; headers: Record<string, string> }
   cases: ContractCase[]
   verdicts: string[]
+  errors: ContractError[]
   limits: {
     clientEventId: { maxLength: number; charset: string }
     typeKey: { minLength: number; maxLength: number }
+    baseType: { minLength: number; maxLength: number }
   }
 }
 
@@ -87,17 +98,22 @@ describe('the manifest covers every file (no undeclared fixtures)', () => {
   // something that is not part of the artifact — prose belongs to whoever owns
   // the directory it lives in, and prose written elsewhere carries links that
   // do not resolve here.
-  it('holds the manifest and the two fixture directories, nothing else', () => {
+  it('holds the manifest and the three fixture directories, nothing else', () => {
     // Dotfiles are ignored: .DS_Store is a fact about opening the directory in
     // Finder, not about what was vendored, and failing on it would train
     // people to ignore this test.
     const entries = readdirSync(CONTRACT_DIR).filter((name) => !name.startsWith('.'))
-    expect(entries.sort()).toEqual(['envelopes', 'index.json', 'verdicts'])
+    expect(entries.sort()).toEqual(['envelopes', 'errors', 'index.json', 'verdicts'])
   })
 
-  it('every *.json in envelopes/ and verdicts/ is named in index.json', () => {
-    const declared = new Set(['index.json', ...index.cases.map((c) => c.file), ...index.verdicts])
-    for (const dir of ['envelopes', 'verdicts']) {
+  it('every *.json in envelopes/, verdicts/ and errors/ is named in index.json', () => {
+    const declared = new Set([
+      'index.json',
+      ...index.cases.map((c) => c.file),
+      ...index.verdicts,
+      ...index.errors.map((e) => e.file),
+    ])
+    for (const dir of ['envelopes', 'verdicts', 'errors']) {
       for (const name of readdirSync(new URL(`${dir}/`, CONTRACT_URL))) {
         if (name.endsWith('.json')) {
           expect(

@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "engine_rejected_request",
+    "message": "no verdict was reached for this envelope"
+  }
+}

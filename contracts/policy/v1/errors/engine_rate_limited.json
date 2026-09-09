@@ -1,0 +1,6 @@
+{
+  "detail": {
+    "code": "engine_rate_limited",
+    "message": "no verdict was reached for this envelope"
+  }
+}
