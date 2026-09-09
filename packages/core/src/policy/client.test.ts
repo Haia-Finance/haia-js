@@ -13,7 +13,10 @@ interface Captured {
   init: { headers?: Record<string, string>; body?: string; method?: string }
 }
 
-function recordingRuntime(respond: (n: number) => Response | Promise<Response>): {
+function recordingRuntime(
+  respond: (n: number) => Response | Promise<Response>,
+  now: () => number = () => 1_000,
+): {
   runtime: Runtime
   calls: Captured[]
 } {
@@ -24,9 +27,22 @@ function recordingRuntime(respond: (n: number) => Response | Promise<Response>):
       return respond(calls.length)
     }) as unknown as typeof fetch,
     storage: { get: () => null, set: () => {} },
-    now: () => 1_000,
+    now,
   }
   return { runtime, calls }
+}
+
+/** The published error body: `{"detail": {"code", "message"}}`. */
+function gateError(
+  code: string,
+  status: number,
+  extra: { message?: string; headers?: Record<string, string> } = {},
+): Response {
+  const message = extra.message ?? 'no verdict was reached for this envelope'
+  return new Response(JSON.stringify({ detail: { code, message } }), {
+    status,
+    headers: { 'content-type': 'application/json', ...extra.headers },
+  })
 }
 
 /** Identity over memory — the same path as a browser with no localStorage. */
@@ -84,23 +100,34 @@ describe('wire contract', () => {
     expect(body.meta.isUnlimitedApproval).toBe(true)
   })
 
-  it('passes through a different decisionId on a retry rather than treating it as stable', async () => {
-    // There is no server-side replay: a retry runs the pipeline again. With
-    // stateless packs the verdict matches; the decisionId does not, and the
-    // contract never promised it would. The SDK must return what the server
-    // answered.
-    const { runtime } = recordingRuntime((n) =>
-      ok({ decisionId: `dec_${n}`, reasons: ['policy_not_configured'] }),
-    )
+  it('returns the engine decision a replay carries, minting none of its own', async () => {
+    // decisionId is the policy engine's execution id, and clientEventId is the
+    // idempotency key it replays a finished decision by — so the same intent
+    // comes back with the same id. The SDK has no say in it either way: it
+    // returns what the server answered.
+    const replayed = { decision: 'flagged' as const, decisionId: 'exec_7', reasons: ['review'] }
+    const { runtime } = recordingRuntime(() => ok(replayed))
     const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
     const intent = facts({ clientEventId: asClientEventId('01JRETRY') })
 
     const first = await client.evaluate(intent)
     const second = await client.evaluate(intent)
 
-    expect(second.decision).toBe(first.decision)
-    expect(second.reasons).toEqual(first.reasons)
-    expect(second.decisionId).not.toBe(first.decisionId)
+    expect(first).toEqual(replayed)
+    expect(second).toEqual(first)
+  })
+
+  it('forwards baseType only when the caller set one', async () => {
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts())
+    await client.evaluate(facts({ baseType: 'token_approval_intent' }))
+
+    // Absent means absent: sending `baseType: undefined` would be a fourth key
+    // in the envelope, and the packs read the field, not the presence of it.
+    expect(Object.keys(JSON.parse(calls[0]?.init.body ?? '{}'))).not.toContain('baseType')
+    expect(JSON.parse(calls[1]?.init.body ?? '{}').baseType).toBe('token_approval_intent')
   })
 
   it('sends clientEventId as the Idempotency-Key', async () => {
@@ -112,10 +139,10 @@ describe('wire contract', () => {
     expect(calls[0]?.init.headers?.['idempotency-key']).toBe('01JXYZ')
   })
 
-  // The stable key is clientEventId. On a retry the decisionId differs: the
-  // server re-evaluates the intent, and the contract declares its stability
-  // best-effort. Asserting equality of decisionId here would pin down a
-  // guarantee the contract does not give.
+  // The idempotency key travels unchanged on both the header and the body: it
+  // is what the server deduplicates its journal by and what the engine replays
+  // a finished decision by. A retry that renamed the intent would be a second
+  // action as far as both are concerned.
   it('keeps the same clientEventId when the caller retries the same intent', async () => {
     const { runtime, calls } = recordingRuntime((n) =>
       n === 1 ? new Response('', { status: 503 }) : ok(),
@@ -369,6 +396,156 @@ describe('error handling', () => {
 
     expect(verdict.decision).toBe('rejected') // from failMode.default, not from the prototype
     expect(verdict.reasons).toEqual(['fallback_closed', 'unavailable'])
+  })
+})
+
+describe('the gate reached no verdict', () => {
+  /** The codes a retry cannot fix: the stand is wrong, not the engine. */
+  const NOT_RETRYABLE: Array<[string, number]> = [
+    ['not_configured', 409],
+    ['engine_error', 502],
+    ['engine_rejected_request', 500],
+  ]
+
+  it('puts the code in reasons and lets the fail-mode decide', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime } = recordingRuntime(() => gateError('not_configured', 409))
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    const blocked = await client.evaluate(facts({ typeKey: 'transfer_intent' }))
+    const allowed = await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    // The class of the action decides, exactly as it does for a timeout — and
+    // the code rides along in reasons, so an integrator can tell a
+    // misconfigured stand from an engine outage in their own telemetry.
+    expect(blocked.decision).toBe('rejected')
+    expect(blocked.reasons).toEqual(['fallback_closed', 'not_configured'])
+    expect(allowed.decision).toBe('approved')
+    expect(allowed.reasons).toEqual(['fallback_open', 'not_configured'])
+    warn.mockRestore()
+  })
+
+  it("relays the engine's own sentence, once per code", async () => {
+    // The message is the whole diagnostic value of a 502: it names the stream
+    // nothing is deployed for, which is what a developer goes and fixes.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const said = 'policy engine failed (500): no active deployment found for stream token_approval'
+    const { runtime } = recordingRuntime(() => gateError('engine_error', 502, { message: said }))
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain(said)
+    expect(warn.mock.calls[0]?.[0]).toContain('engine_error')
+    warn.mockRestore()
+  })
+
+  for (const [code, status] of NOT_RETRYABLE) {
+    it(`does not let ${code} trip the breaker (every call would answer the same)`, async () => {
+      // The breaker exists to spare a struggling dependency. Nothing here is
+      // struggling: opening it would only hide a configuration error behind a
+      // fail-mode for ten seconds at a time.
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { runtime, calls } = recordingRuntime(() => gateError(code, status))
+      const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+      for (let i = 0; i < 8; i++) await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+      expect(calls.length).toBe(8)
+      warn.mockRestore()
+    })
+  }
+
+  it('trips the breaker on engine_unavailable, which is the outage a retry is for', async () => {
+    const { runtime, calls } = recordingRuntime(() => gateError('engine_unavailable', 503))
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    for (let i = 0; i < 8; i++) await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(calls.length).toBe(5) // the breaker threshold
+  })
+
+  it('backs off on engine_rate_limited instead of spending the next budget being throttled', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime, calls } = recordingRuntime(() =>
+      gateError('engine_rate_limited', 503, { headers: { 'retry-after': '30' } }),
+    )
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    const limited = await client.evaluate(facts({ typeKey: 'sign_message' }))
+    const next = await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    // One rate limit is enough — there is no retry of its own to slow down, so
+    // the client stops calling rather than waiting for five of them.
+    expect(limited.reasons).toContain('engine_rate_limited')
+    expect(calls.length).toBe(1)
+    expect(next.reasons).toContain('circuit_open')
+    warn.mockRestore()
+  })
+
+  it('backs off for the ordinary cooldown when the engine sent no Retry-After', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime, calls } = recordingRuntime(() => gateError('engine_rate_limited', 503))
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(calls.length).toBe(1)
+    warn.mockRestore()
+  })
+
+  it('caps a Retry-After that would keep the gate shut for a whole session', async () => {
+    // A day-long header would leave every action in the session decided by the
+    // fail-mode instead of by a rule. Honour it up to a minute, then try again.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let clock = 0
+    const { runtime, calls } = recordingRuntime(
+      (n) =>
+        n === 1
+          ? gateError('engine_rate_limited', 503, { headers: { 'retry-after': '86400' } })
+          : ok(),
+      () => clock,
+    )
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+    clock = 59_000
+    await client.evaluate(facts({ typeKey: 'sign_message' }))
+    expect(calls.length).toBe(1) // still shut
+
+    clock = 60_001
+    expect((await client.evaluate(facts({ typeKey: 'sign_message' }))).decision).toBe('approved')
+    expect(calls.length).toBe(2)
+    warn.mockRestore()
+  })
+
+  it('falls back to the status for a code from a newer contract', async () => {
+    // Forward compatibility: a code this build has never heard of must not be
+    // guessed at. The status is what is left to read, and a 503 is an outage.
+    const { runtime, calls } = recordingRuntime(() => gateError('engine_hiccuped', 503))
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    const verdict = await client.evaluate(facts({ typeKey: 'sign_message' }))
+    for (let i = 0; i < 7; i++) await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(verdict.reasons).toEqual(['fallback_open', 'unavailable'])
+    expect(calls.length).toBe(5) // counted toward the breaker, like any outage
+  })
+
+  it('falls back to the status for an error body with no detail at all', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime } = recordingRuntime(
+      () => new Response('<html>gateway</html>', { status: 400 }),
+    )
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    const verdict = await client.evaluate(facts({ typeKey: 'sign_message' }))
+
+    expect(verdict.reasons).toContain('client_error:400')
+    warn.mockRestore()
   })
 })
 

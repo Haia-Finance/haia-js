@@ -1,4 +1,4 @@
-import type { Decision, Facts, FailMode, IdentityMeta, Verdict } from '@haia/types'
+import type { Decision, Facts, FailMode, GateErrorCode, IdentityMeta, Verdict } from '@haia/types'
 import {
   DEFAULT_FAIL_MODE_BY_TYPE_KEY,
   DEFAULT_LATENCY_BUDGET_MS,
@@ -11,8 +11,80 @@ import { unref } from '../util'
 
 const BREAKER_THRESHOLD = 5
 const BREAKER_COOLDOWN_MS = 10_000
+/**
+ * The ceiling on a `Retry-After` the engine asked for. Honouring an arbitrary
+ * one would let a single header keep the gate shut for longer than any session
+ * lasts, with every action in it decided by the fail-mode instead of a rule.
+ */
+const MAX_BACKOFF_MS = 60_000
 
 const DECISIONS = new Set<Decision>(['approved', 'rejected', 'flagged'])
+
+/** The published codes. An unknown one is not treated as any of them. */
+const GATE_ERROR_CODES = new Set<string>([
+  'not_configured',
+  'engine_error',
+  'engine_unavailable',
+  'engine_rate_limited',
+  'engine_rejected_request',
+])
+
+/** What the developer can do about each code — the half a status cannot say. */
+const GATE_ERROR_ADVICE: Record<GateErrorCode, string> = {
+  not_configured:
+    'This workspace has no policy engine tenant; provisioning one is the fix and a retry is not.',
+  engine_error:
+    'The policy engine failed on its own terms — a typeKey with no deployment behind it is the usual cause.',
+  engine_unavailable: 'The policy engine did not answer.',
+  engine_rate_limited:
+    'The policy engine is at capacity; the client is backing off before it calls again.',
+  engine_rejected_request:
+    'The control plane sent the engine a payload it refused; that one is not yours to fix.',
+}
+
+/** A gate that reached no verdict, and the reason it publishes for it. */
+interface GateError {
+  code: GateErrorCode
+  /** The engine's own sentence, when it had one. A diagnostic, not user-facing copy. */
+  message?: string
+}
+
+/**
+ * Read the published error body: `{"detail": {"code", "message"}}`.
+ *
+ * Anything else answers null — a proxy's HTML 502, an empty body, a code from
+ * a newer contract this build does not know. The caller then falls back to
+ * reading the status, which is all a body like that leaves to go on.
+ */
+async function parseGateError(res: Response): Promise<GateError | null> {
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    return null
+  }
+  const detail = (body as { detail?: unknown } | null)?.detail
+  if (!detail || typeof detail !== 'object') return null
+  const { code, message } = detail as Record<string, unknown>
+  if (typeof code !== 'string' || !GATE_ERROR_CODES.has(code)) return null
+  return {
+    code: code as GateErrorCode,
+    ...(typeof message === 'string' && message !== '' ? { message } : {}),
+  }
+}
+
+/**
+ * `Retry-After` in its delay-seconds form, which is the one the engine sends.
+ * The HTTP-date form is deliberately not parsed: it would make the wall clock
+ * load-bearing on the hot path, and the ordinary cooldown is the right answer
+ * for a header this client cannot read.
+ */
+function backoffMs(res: Response): number {
+  const raw = res.headers.get('retry-after')
+  const seconds = raw === null ? Number.NaN : Number(raw.trim())
+  if (!Number.isFinite(seconds) || seconds <= 0) return BREAKER_COOLDOWN_MS
+  return Math.min(seconds * 1000, MAX_BACKOFF_MS)
+}
 
 /**
  * Validate the verdict: `as Verdict` cannot be trusted — the gate has to tell
@@ -62,8 +134,9 @@ export interface GuardOptions {
  * There is NO verdict cache, by construction: every gate is a real call, and
  * every intent lands on the server as its own event. Whether an action is
  * gated at all is a server-side question too — the client sends everything it
- * intercepts, and an ungated action gets a fast `approved` with the reason
- * `not_gated`.
+ * intercepts, and a verdict comes back only where a policy pack reached one.
+ * Every other answer is a published error code, and the fail-mode decides:
+ * nothing is waved through on the grounds that no rule looked at it.
  *
  * Identity is attached to the envelope (`withIdentity`); without it the
  * decision record the server writes is counted by no funnel and reached by no
@@ -72,6 +145,7 @@ export interface GuardOptions {
 export class PolicyClient {
   private failures = 0
   private breakerOpenUntil = 0
+  private readonly warnedGateCodes = new Set<GateErrorCode>()
   private warnedClientError = false
   private warnedMalformed = false
   private warnedNoIdentity = false
@@ -105,21 +179,29 @@ export class PolicyClient {
         headers: {
           'content-type': 'application/json',
           // Idempotency: the id belongs to the caller and is NOT regenerated
-          // here. The server deduplicates a retry of the same intent by this
-          // key; the verdict itself is decided again, which is why the contract
-          // declares `decisionId` stability best-effort rather than promising
-          // it. The stable key is `clientEventId`.
+          // here. It is the key the policy engine replays a finished decision
+          // by, so a retry of the same intent comes back with that decision
+          // rather than a second one.
           'idempotency-key': facts.clientEventId,
           authorization: `Bearer ${this.cfg.publishableKey}`,
         },
         body: JSON.stringify({
           clientEventId: facts.clientEventId,
           typeKey: facts.typeKey,
+          // Forwarded verbatim and only when the caller set it. The SDK does
+          // not derive one from the typeKey: which base type a pack guards on
+          // is the pack's business, and a guessed value matches no rule just
+          // as surely as a missing one.
+          ...(facts.baseType !== undefined ? { baseType: facts.baseType } : {}),
           meta: this.withIdentity(facts.meta),
         }),
       })
       if (!res.ok) {
-        // A 4xx (other than 429) is configuration or authorization, not a
+        const gate = await parseGateError(res)
+        if (gate) return this.onGateError(facts, gate, res, opts)
+        // No published code: the gateway itself answered (a 401 on the key),
+        // or something in between did. The status is then all there is to go
+        // on. A 4xx other than 429 is configuration or authorization, not a
         // transient outage: it is not counted toward the circuit breaker
         // (retries will not help) and is reported with an explicit reason, so
         // a misconfigured publishableKey/projectId is visible instead of being
@@ -148,6 +230,43 @@ export class PolicyClient {
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  /**
+   * Branch on the published code, not on the status: two of them are 503 and
+   * want opposite things, and `engine_error` is a 502 no retry will fix.
+   *
+   * The fail-mode applies in every branch — the gate reached no verdict, so
+   * the class of the action decides, exactly as for a timeout. What the code
+   * changes is what happens next: whether the failure counts toward the
+   * breaker, how long the client stays off the network, and what the developer
+   * is told. The code itself goes into `reasons`, so an integrator's telemetry
+   * can tell a misconfigured stand from an engine outage.
+   */
+  private onGateError(facts: Facts, gate: GateError, res: Response, opts?: GuardOptions): Verdict {
+    switch (gate.code) {
+      case 'engine_rate_limited':
+        // Backing off IS the answer to a rate limit, and this client has no
+        // retry of its own to slow down: shut the gate for as long as the
+        // engine asked, so the calls behind this one do not spend their
+        // latency budget being throttled.
+        this.breakerOpenUntil = this.runtime.now() + backoffMs(res)
+        this.warnGateError(gate)
+        break
+      case 'engine_unavailable':
+        // The engine did not answer: the ordinary outage path, and what the
+        // breaker exists for.
+        this.onFailure()
+        break
+      default:
+        // not_configured, engine_error, engine_rejected_request: the stand is
+        // wrong, not the engine. Every call will be answered the same way, so
+        // this does not count toward the breaker — which is there to spare a
+        // struggling dependency, not to hide a configuration error — and the
+        // engine's own sentence is what a developer fixes it by.
+        this.warnGateError(gate)
+    }
+    return this.fallback(facts, gate.code, opts)
   }
 
   /**
@@ -255,6 +374,21 @@ export class PolicyClient {
     this.warnedMalformed = true
     console.warn(
       'haia: policy /evaluate returned 200 with an unrecognised body; treating as unavailable and applying fail-mode.',
+    )
+  }
+
+  /**
+   * Once per code, not once per call: a misconfigured stand answers the same
+   * thing on every action, and a console line per gated action would bury the
+   * one that says what to fix.
+   */
+  private warnGateError(gate: GateError): void {
+    if (this.warnedGateCodes.has(gate.code)) return
+    this.warnedGateCodes.add(gate.code)
+    const said = gate.message ? ` — ${gate.message}` : ''
+    console.warn(
+      `haia: policy /evaluate answered ${gate.code}${said}. ${GATE_ERROR_ADVICE[gate.code]} ` +
+        'Applying the configured fail-mode meanwhile.',
     )
   }
 
