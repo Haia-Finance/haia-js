@@ -7,7 +7,7 @@ suite is self-contained: the contract test in
 checked out.
 
 - Contract: `policy/evaluate`, version 1
-- Snapshot taken: 2026-09-09
+- Snapshot taken: 2026-09-10
 - Consumer: `packages/core/src/contract.test.ts`
 
 ## What is in the snapshot, and what is not

@@ -46,6 +46,16 @@
       "note": "pack-shaped meta: numeric amounts and a bare chain name, because a rule compares the value it is given — the convention dictionary yields to the pack that reads the key (docs/guides/policy-meta-keys.md)"
     },
     {
+      "file": "envelopes/valid-with-context.json",
+      "accepted": true,
+      "note": "contextId names the operation this call belongs to — the same id the trace SDK sends as an event's context_id, which is what links the decision to its operation receipt. Optional: a caller that has no operation to name omits it."
+    },
+    {
+      "file": "envelopes/valid-blank-context.json",
+      "accepted": true,
+      "note": "a whitespace-only contextId is accepted and read as absent, never as an operation named by the empty string — the id is a linking hint, and failing a money call over one is the trade §3.1 rules out"
+    },
+    {
       "file": "envelopes/invalid-missing-client-event-id.json",
       "accepted": false,
       "reason": "clientEventId is required"
@@ -79,6 +89,11 @@
       "file": "envelopes/invalid-oversize-meta.json",
       "accepted": false,
       "reason": "meta serialises to more than 65536 bytes"
+    },
+    {
+      "file": "envelopes/invalid-long-context-id.json",
+      "accepted": false,
+      "reason": "contextId exceeds 256 chars"
     }
   ],
   "verdicts": [
@@ -144,6 +159,10 @@
       "minLength": 1,
       "maxLength": 128,
       "note": "optional; omitted means the engine sees no `type`"
+    },
+    "contextId": {
+      "maxLength": 256,
+      "note": "optional; bounds only, no charset — the cap matches the ingest field it lands in, so an id the trace SDK can send is an id this gate accepts. Whitespace is trimmed and a blank value reads as omitted."
     }
   }
 }

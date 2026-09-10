@@ -4,7 +4,7 @@ import type { HaiaConfig } from '../config'
 import { asClientEventId } from '../id'
 import { Identity, type IdentitySource } from '../identity/identity'
 import type { Runtime } from '../runtime'
-import { PolicyClient } from './client'
+import { CONTEXT_ID_MAX_LENGTH, PolicyClient } from './client'
 
 const cfg: HaiaConfig = { projectId: 'proj_1', publishableKey: 'pk_test_123' }
 
@@ -144,6 +144,78 @@ describe('wire contract', () => {
     for (const call of calls) {
       expect(Object.keys(JSON.parse(call.init.body ?? '{}'))).not.toContain('baseType')
     }
+  })
+
+  it('forwards contextId only when the caller named an operation', async () => {
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts())
+    await client.evaluate(facts({ contextId: 'op_7f3a9c00' }))
+
+    expect(Object.keys(JSON.parse(calls[0]?.init.body ?? '{}'))).not.toContain('contextId')
+    expect(JSON.parse(calls[1]?.init.body ?? '{}').contextId).toBe('op_7f3a9c00')
+  })
+
+  it('treats a null, empty or whitespace contextId as no operation at all', async () => {
+    // The gate trims before it looks and reads a blank as absent, so any of
+    // these on the wire would file the decision under no operation while the
+    // caller believed otherwise. Whitespace is the realistic one: it is what
+    // an untouched form field or a template hole produces.
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ contextId: null as unknown as string }))
+    await client.evaluate(facts({ contextId: '' }))
+    await client.evaluate(facts({ contextId: '   ' }))
+
+    for (const call of calls) {
+      expect(Object.keys(JSON.parse(call.init.body ?? '{}'))).not.toContain('contextId')
+    }
+  })
+
+  it('trims a padded contextId rather than sending it as the caller typed it', async () => {
+    // The value has to equal the one the operation's events carried, and
+    // ingest strips those. Sending the padding would leave the two never
+    // meeting, with nothing to report it — the receipt would just show no
+    // decisions.
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    await client.evaluate(facts({ contextId: '  op_7f3a9c00  ' }))
+
+    expect(JSON.parse(calls[0]?.init.body ?? '{}').contextId).toBe('op_7f3a9c00')
+  })
+
+  it('drops an over-long contextId instead of letting it block the action', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime, calls } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+
+    const verdict = await client.evaluate(
+      facts({ contextId: 'o'.repeat(CONTEXT_ID_MAX_LENGTH + 1) }),
+    )
+
+    // A 422 on envelope shape becomes the fail-mode, and `transfer_intent`
+    // fails closed — so sending it would block a transfer over an id that
+    // only decides which receipt a decision appears on.
+    expect(Object.keys(JSON.parse(calls[0]?.init.body ?? '{}'))).not.toContain('contextId')
+    expect(verdict.decision).toBe('approved')
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
+  it('warns about an over-long contextId once, not once per action', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { runtime } = recordingRuntime(() => ok())
+    const client = new PolicyClient(cfg, runtime, 'https://api', testIdentity())
+    const long = 'o'.repeat(CONTEXT_ID_MAX_LENGTH + 1)
+
+    await client.evaluate(facts({ contextId: long }))
+    await client.evaluate(facts({ contextId: long }))
+
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
   })
 
   it('sends clientEventId as the Idempotency-Key', async () => {

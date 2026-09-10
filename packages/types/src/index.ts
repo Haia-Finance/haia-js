@@ -82,6 +82,25 @@ export interface Facts {
    * pack expects one; the SDK forwards it verbatim and invents none.
    */
   baseType?: string
+  /**
+   * The operation this intent belongs to — your id for the whole thing the
+   * user is doing, not for this one call.
+   *
+   * Yours to choose and yours to reuse: the control plane files the decision
+   * under it, and the same id sent with the operation's events is what puts
+   * the verdict on that operation's receipt beside everything else it did.
+   * Send the same value from both places or the two never meet.
+   *
+   * Optional, and omitting it costs nothing at the gate — the verdict is
+   * identical either way. What it costs is afterwards: a decision with no
+   * operation named is one no receipt can show, and the id cannot be added
+   * later.
+   *
+   * Distinct from `clientEventId`, which identifies this single call and is
+   * the idempotency key. One operation usually makes several calls, each with
+   * its own `clientEventId` and all with the same `contextId`.
+   */
+  contextId?: string
   /** Flat, no nesting. */
   meta: Record<string, unknown> & IdentityMeta
 }
