@@ -43,6 +43,14 @@ nothing translated in between:
 | `clientEventId` | `id` | the idempotency key |
 | `meta` | `data` | every field the pack's rules read |
 
+`contextId` is the one envelope field that never reaches the engine. It names
+the operation an intent belongs to — the caller's id for the whole thing the
+user is doing, not for this one call — and the control plane files the decision
+under it so the verdict lands on that operation's receipt. Send the same value
+with the operation's events or the two never meet. Omitting it changes no
+verdict; it only leaves the decision unattached, and it cannot be added
+afterwards.
+
 `baseType` is optional, and omitting it is not an error — but a pack whose
 rules guard on the event type (`event.type == "<stream>_intent"`, which is how
 the shipped packs are written) matches nothing without it, and the engine
@@ -67,6 +75,7 @@ than discover it from a rejection.
 | `clientEventId` | 1–64 chars, `[A-Za-z0-9_-]` | 422 |
 | `typeKey` | 1–128 chars | 422 |
 | `baseType` | 1–128 chars, optional | 422 |
+| `contextId` | ≤256 chars, optional | 422 |
 | `meta` | 65536 bytes serialized | 422 |
 | whole body | 262144 bytes | 413 `payload_too_large` |
 

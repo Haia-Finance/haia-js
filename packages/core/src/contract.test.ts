@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HaiaConfig } from './config'
 import { asClientEventId } from './id'
 import { IDENTITY_META_KEYS, Identity } from './identity/identity'
-import { PolicyClient } from './policy/client'
+import { CONTEXT_ID_MAX_LENGTH, PolicyClient } from './policy/client'
 import type { Runtime } from './runtime'
 
 /**
@@ -53,6 +53,7 @@ interface ContractIndex {
     clientEventId: { maxLength: number; charset: string }
     typeKey: { minLength: number; maxLength: number }
     baseType: { minLength: number; maxLength: number }
+    contextId: { maxLength: number }
   }
 }
 
@@ -237,6 +238,114 @@ describe('baseType — the field the packs guard their rules on', () => {
     // pack guards on is the pack's business and a guessed one matches no rule.
     expect(body.baseType).toBe(fixture.baseType)
     expect((body.baseType as string).length).toBeLessThanOrEqual(index.limits.baseType.maxLength)
+  })
+})
+
+describe('contextId — the operation a decision belongs to', () => {
+  const contextCase = index.cases.find((c) => c.file.includes('valid-with-context'))
+
+  it('the manifest declares a contextId case', () => {
+    expect(contextCase, 'index.json lost envelopes/valid-with-context.json').toBeDefined()
+    expect(contextCase?.accepted).toBe(true)
+  })
+
+  it('the SDK sends it verbatim, as a fifth top-level key', async () => {
+    const fixture = loadJson(contextCase?.file ?? '') as {
+      clientEventId: string
+      typeKey: string
+      contextId: string
+      meta: Record<string, unknown>
+    }
+    const cap = captureRuntime(
+      () =>
+        new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
+    )
+    const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+    await client.evaluate({
+      clientEventId: asClientEventId(fixture.clientEventId),
+      typeKey: fixture.typeKey,
+      contextId: fixture.contextId,
+      meta: fixture.meta,
+    })
+
+    const body = cap.body()
+    expect(Object.keys(body).sort()).toEqual(['clientEventId', 'contextId', 'meta', 'typeKey'])
+    // Verbatim, and never derived from clientEventId: that id names this one
+    // call, and using it as the operation would file every call of an
+    // operation as an operation of its own.
+    expect(body.contextId).toBe(fixture.contextId)
+    expect((body.contextId as string).length).toBeLessThanOrEqual(index.limits.contextId.maxLength)
+  })
+
+  it('an operation nobody named is left out of the envelope entirely', async () => {
+    // Read from the fixture rather than written here: the contract's blank
+    // case is whitespace, not the empty string, because that is the shape a
+    // form field or a template produces. The gate trims and reads it as
+    // absent, so sending it would file the decision under no operation while
+    // the caller believed otherwise.
+    const blankCase = index.cases.find((c) => c.file.includes('valid-blank-context'))
+    expect(blankCase?.accepted, 'index.json lost envelopes/valid-blank-context.json').toBe(true)
+    const fixture = loadJson(blankCase?.file ?? '') as {
+      clientEventId: string
+      typeKey: string
+      contextId: string
+    }
+    expect(fixture.contextId.trim()).toBe('')
+
+    const cap = captureRuntime(
+      () =>
+        new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
+    )
+    const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+    await client.evaluate({
+      clientEventId: asClientEventId(fixture.clientEventId),
+      typeKey: fixture.typeKey,
+      contextId: fixture.contextId,
+      meta: {},
+    })
+
+    expect(Object.keys(cap.body())).not.toContain('contextId')
+  })
+
+  it('never sends the length the contract publishes as a rejection', async () => {
+    // The fixture is a *reject* case, so putting it on the wire would be a
+    // 422 on envelope shape — which this SDK turns into the fail-mode, and a
+    // money action would be blocked over an id that only decides which
+    // receipt a decision appears on. The bound is read before sending, which
+    // is what `contracts/README.md` asks an SDK to do.
+    const longCase = index.cases.find((c) => c.file.includes('invalid-long-context-id'))
+    expect(longCase?.accepted, 'index.json lost envelopes/invalid-long-context-id.json').toBe(false)
+    const fixture = loadJson(longCase?.file ?? '') as { contextId: string }
+    expect(fixture.contextId.length).toBeGreaterThan(index.limits.contextId.maxLength)
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const cap = captureRuntime(
+      () =>
+        new Response(JSON.stringify({ decision: 'approved', decisionId: 'd' }), { status: 200 }),
+    )
+    const client = new PolicyClient(cfg, cap.runtime, 'https://api', identityOf(cap.runtime))
+
+    const verdict = await client.evaluate({
+      clientEventId: asClientEventId('01J9ZQK7X8Y2N4M6P0R3S5T7VA'),
+      typeKey: 'transfer_intent',
+      contextId: fixture.contextId,
+      meta: {},
+    })
+
+    // Dropped, not sent and not thrown: the action still gets its verdict,
+    // and the integrator is told what they lost.
+    expect(Object.keys(cap.body())).not.toContain('contextId')
+    expect(verdict.decision).toBe('approved')
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
+  })
+
+  it('the SDK constant and the published limit are the same number', () => {
+    // The runtime bundle carries the cap as a constant rather than reading
+    // the snapshot; this is what keeps the two from drifting apart.
+    expect(CONTEXT_ID_MAX_LENGTH).toBe(index.limits.contextId.maxLength)
   })
 })
 

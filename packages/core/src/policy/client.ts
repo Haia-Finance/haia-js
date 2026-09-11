@@ -9,6 +9,15 @@ import { IDENTITY_META_KEYS, type IdentitySource } from '../identity/identity'
 import type { Runtime } from '../runtime'
 import { unref } from '../util'
 
+/**
+ * `limits.contextId.maxLength` from the wire contract
+ * (`contracts/policy/v1/index.json`). Duplicated as a constant rather than
+ * read from the snapshot: the snapshot is test data, not something the
+ * runtime bundle should carry — but the contract test asserts the two agree,
+ * so a change on the server side fails here rather than in production.
+ */
+export const CONTEXT_ID_MAX_LENGTH = 256
+
 const BREAKER_THRESHOLD = 5
 const BREAKER_COOLDOWN_MS = 10_000
 /**
@@ -148,6 +157,7 @@ export class PolicyClient {
   private readonly warnedGateCodes = new Set<GateErrorCode>()
   private warnedClientError = false
   private warnedMalformed = false
+  private warnedContextIdTooLong = false
   private warnedNoIdentity = false
 
   constructor(
@@ -199,6 +209,7 @@ export class PolicyClient {
           // path that is a transfer blocked over a field the contract calls
           // optional.
           ...(facts.baseType != null && facts.baseType !== '' ? { baseType: facts.baseType } : {}),
+          ...this.contextIdField(facts.contextId),
           meta: this.withIdentity(facts.meta),
         }),
       })
@@ -400,6 +411,48 @@ export class PolicyClient {
     console.warn(
       `haia: policy /evaluate answered ${gate.code}${said}. ${GATE_ERROR_ADVICE[gate.code]} ` +
         'Applying the configured fail-mode meanwhile.',
+    )
+  }
+
+  /**
+   * The operation field, when there is one worth sending.
+   *
+   * Two ways a value is not worth sending, and both drop it rather than fail
+   * the call. Blank — after trimming, which is what the gate does before it
+   * looks — because the gate reads that as absent anyway, so putting it on
+   * the wire would file the decision under no operation while the caller
+   * believed otherwise. Over the published cap because the gate answers a
+   * length violation with a 422 on envelope shape, and this SDK turns a 422
+   * into the configured fail-mode: a money action would be *blocked* over an
+   * id that only ever decided which receipt a decision appears on.
+   *
+   * That trade is the whole reason the check is here. The contract says an
+   * SDK should read `limits` before sending rather than discover them from a
+   * rejection, and this is the field where discovering it costs the most —
+   * it is a foreign key from the partner's own system, so it is the one most
+   * likely to be a long composite value.
+   *
+   * The call still goes, with the same verdict; what is lost is the link to
+   * the operation, which is why it warns instead of failing quietly.
+   */
+  private contextIdField(contextId: string | undefined): { contextId?: string } {
+    if (contextId == null) return {}
+    const trimmed = contextId.trim()
+    if (trimmed === '') return {}
+    if (trimmed.length > CONTEXT_ID_MAX_LENGTH) {
+      this.warnContextIdTooLong(trimmed.length)
+      return {}
+    }
+    return { contextId: trimmed }
+  }
+
+  private warnContextIdTooLong(length: number): void {
+    if (this.warnedContextIdTooLong) return
+    this.warnedContextIdTooLong = true
+    console.warn(
+      `haia: contextId is ${length} characters, over the contract's ${CONTEXT_ID_MAX_LENGTH}; ` +
+        'sending the intent without it. The verdict is unaffected, but this decision will not ' +
+        'appear on the operation receipt — shorten the id.',
     )
   }
 

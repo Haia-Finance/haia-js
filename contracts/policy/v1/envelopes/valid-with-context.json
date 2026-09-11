@@ -1,0 +1,10 @@
+{
+  "clientEventId": "01J9ZQK7X8Y2N4M6P0R3S5T7VC",
+  "typeKey": "stablecoin_transfer",
+  "contextId": "op_7f3a9c00-2026-06-24",
+  "meta": {
+    "userId": "usr_8812",
+    "chain": "eip155:1",
+    "amount": "1250.5"
+  }
+}
