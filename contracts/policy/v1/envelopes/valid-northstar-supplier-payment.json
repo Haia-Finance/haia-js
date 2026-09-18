@@ -1,0 +1,21 @@
+{
+  "clientEventId": "pol-northstar-1f4c8ad20b7e93c15a6d0e42",
+  "typeKey": "supplier_payment",
+  "contextId": "SP-3F9A2C1B7E4D",
+  "meta": {
+    "corridor": "US-DE",
+    "asset": "USDC",
+    "amount_usd": 48500,
+    "counterparty": "Supplier 2044",
+    "beneficiary_settled_count": 12,
+    "recent_payment_count_24h": 18,
+    "recent_volume_usd_24h": 1250000.0,
+    "corridor_volume_usd_24h": 640000.0,
+    "duplicate_reference_seen": false,
+    "userId": "sim-northstar-user-0031",
+    "anonymousId": "sim-northstar-anon-0031",
+    "from": "0xAbC0000000000000000000000000000000000031",
+    "to": "0xDeF0000000000000000000000000000000000097",
+    "screen": "send"
+  }
+}

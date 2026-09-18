@@ -41,9 +41,9 @@
       "note": "unknown meta keys are stored verbatim; unknown envelope fields are ignored, not rejected"
     },
     {
-      "file": "envelopes/valid-waas-stablecoin-transfer.json",
+      "file": "envelopes/valid-northstar-supplier-payment.json",
       "accepted": true,
-      "note": "pack-shaped meta: numeric amounts and a bare chain name, because a rule compares the value it is given — the convention dictionary yields to the pack that reads the key (docs/guides/policy-meta-keys.md)"
+      "note": "pack-shaped meta: numeric amounts and counters, because a rule compares the value it is given — the convention dictionary yields to the pack that reads the key (docs/guides/policy-meta-keys.md); contextId names the operation the decision lands on"
     },
     {
       "file": "envelopes/valid-with-context.json",
